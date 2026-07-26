@@ -1,0 +1,263 @@
+# eksctl create cluster \
+#   --name shopnow-cluster \
+#   --region ap-southeast-1 \
+#   --node-type t3.medium \
+#   --nodes 2 \
+#   --managed
+
+
+# ==========================================
+# 1. CONFIGMAP (Cấu hình chung cho toàn hệ thống)
+# ==========================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-env-config
+data:
+  DB_HOST: "shopnow-postgres-db.crwwiee2uoly.ap-southeast-1.rds.amazonaws.com" # Lấy endpoint RDS từ Terraform
+  DB_PORT: "5432"
+  DB_NAME: "postgres"
+  DB_USER: "shop_admin"
+  KEYCLOAK_TOKEN_URL: "http://keycloak-service:8080/realms/java-microservice-realm/protocol/openid-connect/token"
+  KEYCLOAK_ISSUER: "http://keycloak-service:8080/realms/java-microservice-realm"
+  KEYCLOAK_JWKS_URI: "http://keycloak-service:8080/realms/java-microservice-realm/protocol/openid-connect/certs"
+  KEYCLOAK_CLIENT_ID: "spring-cloud-client"
+  KEYCLOAK_GRANT_TYPE: "client_credentials"
+  KEYCLOAK_SCOPE: "openid offline_access"
+  PRODUCT_SERVICE_URL: "http://product-service:5861"
+  CART_SERVICE_URL: "http://shopping-cart-service:5863"
+  USER_SERVICE_URL: "http://user-service:5865"
+
+---
+# ==========================================
+# 2. USER SERVICE (Cổng dịch vụ người dùng)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+spec:
+  selector:
+    app: user-service
+  ports:
+    - protocol: TCP
+      port: 5865
+      targetPort: 5865
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: 975050330242.dkr.ecr.ap-southeast-1.amazonaws.com/dev/user-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5865
+          envFrom:
+            - configMapRef:
+                name: shop-env-config
+          env:
+            - name: PORT
+              value: "5865"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dev-shopnow-env-vars
+                  key: DB_PASSWORD
+            - name: KEYCLOAK_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: dev-shopnow-env-vars
+                  key: KEYCLOAK_CLIENT_SECRET
+
+---
+# ==========================================
+# 3. PRODUCT SERVICE (Cổng dịch vụ sản phẩm)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+spec:
+  selector:
+    app: product-service
+  ports:
+    - protocol: TCP
+      port: 5861
+      targetPort: 5861
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+        - name: product-service
+          image: 975050330242.dkr.ecr.ap-southeast-1.amazonaws.com/dev/product-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5861
+          envFrom:
+            - configMapRef:
+                name: shop-env-config
+          env:
+            - name: PORT
+              value: "5861"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dev-shopnow-env-vars
+                  key: DB_PASSWORD
+
+---
+# ==========================================
+# 4. SHOPPING CART SERVICE (Cổng giỏ hàng)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopping-cart-service
+spec:
+  selector:
+    app: shopping-cart-service
+  ports:
+    - protocol: TCP
+      port: 5863
+      targetPort: 5863
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopping-cart-service-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shopping-cart-service
+  template:
+    metadata:
+      labels:
+        app: shopping-cart-service
+    spec:
+      containers:
+        - name: shopping-cart-service
+          image: 975050330242.dkr.ecr.ap-southeast-1.amazonaws.com/dev/shopping-cart-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5863
+          envFrom:
+            - configMapRef:
+                name: shop-env-config
+          env:
+            - name: PORT
+              value: "5863"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dev-shopnow-env-vars
+                  key: DB_PASSWORD
+
+---
+# ==========================================
+# 5. KEYCLOAK SERVICE (Xác thực phân quyền)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-service
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: 975050330242.dkr.ecr.ap-southeast-1.amazonaws.com/dev/keycloak-realms:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+
+---
+# ==========================================
+# 6. API GATEWAY (Cổng giao tiếp ngoài)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - protocol: TCP
+      port: 5860
+      targetPort: 5860
+  type: LoadBalancer # Mở cổng LoadBalancer để nhận traffic từ bên ngoài
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: 975050330242.dkr.ecr.ap-southeast-1.amazonaws.com/dev/api-gateway:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5860
+          envFrom:
+            - configMapRef:
+                name: shop-env-config
+          env:
+            - name: PORT
+              value: "5860"
