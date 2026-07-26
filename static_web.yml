@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Secure Static Website Hosting using S3 and CloudFront with OAC
+
+Resources:
+  # 1. Tạo S3 Bucket chứa mã nguồn website tĩnh tích hợp luôn cấu hình chặn public
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: shop-s3-bucket-2026-975050330242
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # 2. Cấu hình Origin Access Control (OAC) để CloudFront kết nối bảo mật với S3
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig: 
+        Name: WebsiteOAC
+        Description: OAC for static website hosting
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # 3. Tạo CloudFront Distribution (Mạng phân phối nội dung toàn cầu)
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !Ref CloudFrontOAC
+
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https # Ép buộc chuyển hướng HTTP sang HTTPS bảo mật
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+  # 4. Cấu hình Bucket Policy chuẩn hóa định dạng Version
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+        Version: '2012-10-17'
+
+Outputs:
+  CloudFrontDomainName:
+    Description: URL truy cập website thông qua CloudFront CDN
+    Value: !GetAtt CloudFrontDistribution.DomainName
