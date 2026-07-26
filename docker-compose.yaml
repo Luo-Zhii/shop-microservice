@@ -1,0 +1,154 @@
+# =============================================================================
+# ShopNow — Full Stack Docker Compose
+# =============================================================================
+# Chạy toàn bộ: PostgreSQL + Keycloak + 4 Node.js services + React Frontend
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # PostgreSQL (database chính cho tất cả services)
+  # ===========================================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "6543:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shopnow-backend-node/product-data.sql:/docker-entrypoint-initdb.d/product-data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Keycloak (auth server - dùng H2 built-in, không cần MySQL)
+  # ===========================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:23.0.3
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./shopnow-backend-node/keycloak-realms/:/opt/keycloak/data/import/
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3 | grep -q 'UP'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ===========================================================================
+  # Product Service — CRUD sản phẩm (port 5861)
+  # ===========================================================================
+  product-service:
+    build:
+      context: ./shopnow-backend-node/product-service
+      dockerfile: Dockerfile
+    ports:
+      - "5861:5861"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "5861"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: admin
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Shopping Cart Service — quản lý giỏ hàng (port 5863)
+  # ===========================================================================
+  shopping-cart-service:
+    build:
+      context: ./shopnow-backend-node/shopping-cart-service
+      dockerfile: Dockerfile
+    ports:
+      - "5863:5863"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "5863"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: admin
+      PRODUCT_SERVICE_URL: http://product-service:5861
+    restart: unless-stopped
+
+  # ===========================================================================
+  # User Service — đăng ký, đăng nhập, quản lý user (port 5865)
+  # ===========================================================================
+  user-service:
+    build:
+      context: ./shopnow-backend-node/user-service
+      dockerfile: Dockerfile
+    ports:
+      - "5865:5865"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PORT: "5865"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: postgres
+      DB_USER: postgres
+      DB_PASSWORD: admin
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/java-microservice-realm/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: spring-cloud-client
+      KEYCLOAK_CLIENT_SECRET: AJufwN1eof8P5Gga5Y9atCFqdMuZEuKd
+      KEYCLOAK_GRANT_TYPE: client_credentials
+      KEYCLOAK_SCOPE: openid offline_access
+      CART_SERVICE_URL: http://shopping-cart-service:5863
+    restart: unless-stopped
+
+  # ===========================================================================
+  # API Gateway — JWT + proxy (port 5860)
+  # ===========================================================================
+  api-gateway:
+    build:
+      context: ./shopnow-backend-node/api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "5860:5860"
+    depends_on:
+      - keycloak
+      - product-service
+      - shopping-cart-service
+      - user-service
+    environment:
+      PORT: "5860"
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/java-microservice-realm
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/java-microservice-realm/protocol/openid-connect/certs
+      PRODUCT_SERVICE_URL: http://product-service:5861
+      CART_SERVICE_URL: http://shopping-cart-service:5863
+      USER_SERVICE_URL: http://user-service:5865
+    restart: unless-stopped
+
+  # ===========================================================================
+  # Frontend (React 18 + Nginx) — port 3000
+  # ===========================================================================
+  frontend:
+    build:
+      context: ./shopnow-frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

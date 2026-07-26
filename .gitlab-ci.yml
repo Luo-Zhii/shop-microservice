@@ -1,0 +1,208 @@
+# =============================================================================
+# shopnow-app — GitLab CI/CD Pipeline
+# =============================================================================
+# Pipeline này build Docker images, push lên Harbor registry,
+# sau đó tự động cập nhật image tag trong repo shopnow-gitops.
+# ArgoCD (watch shopnow-gitops) sẽ tự động deploy lên K8s.
+# =============================================================================
+
+variables:
+  USER_PROJECT: "ubuntu"
+  HARBOR_REGISTRY: "registry.luo.io.vn"
+  HARBOR_PROJECT: "techcareer"
+  GITOPS_REPO: "http://gitlab.luo.io.vn/root/shopnow-gitops.git"
+  SEMGREP_REPORT: "semgrep_sast_${CI_PROJECT_NAME}_${CI_COMMIT_SHORT_SHA}_report"
+  TRIVYFS_REPORT: "trivyfs_scan_${CI_PROJECT_NAME}_${CI_COMMIT_SHORT_SHA}_report"
+  OWASP_ZAP_REPORT: "owasp_zap_dast_${CI_PROJECT_NAME}_${CI_COMMIT_SHORT_SHA}_report"
+
+stages:
+  - sast-sca              # SAST + SCA scan
+  - build                 # Build Docker images
+  - deploy-staging        # Deploy staging (docker-compose test)
+  - dast                  # DAST scan
+  - update-gitops         # 🆕 Cập nhật image tag → shopnow-gitops repo
+
+# =============================================================================
+# STAGE 1: SAST & SCA
+# =============================================================================
+
+semgrep_sast:
+  stage: sast-sca
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - echo "[SAST] Running Semgrep source code scan..."
+    - docker run --rm -v "${PWD}:/src" returntocorp/semgrep semgrep scan --config auto --json -o /src/${SEMGREP_REPORT}.json /src || true
+    - |
+      python3 - <<'PYEOF'
+      import json, os, html, datetime
+      report_base = os.environ.get("SEMGREP_REPORT", "semgrep_report")
+      json_path   = report_base + ".json"
+      html_path   = report_base + ".html"
+      try:
+          with open(json_path) as f: data = json.load(f)
+      except Exception as e: data = {"results": [], "errors": [str(e)]}
+      results = data.get("results", [])
+      total = len(results)
+      ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+      rows = ""
+      for r in results:
+          sev = r.get("extra", {}).get("severity", "INFO").upper()
+          path = html.escape(r.get("path", ""))
+          line = r.get("start", {}).get("line", "")
+          msg = html.escape(r.get("extra", {}).get("message", "").strip())
+          rule = html.escape(r.get("check_id", ""))
+          rows += f'<tr><td><b>{sev}</b></td><td><code>{path}:{line}</code></td><td>{msg}</td><td>{rule}</td></tr>'
+      page = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Semgrep SAST</title>
+      <style>body{{font-family:system-ui;background:#0f0f1a;color:#e0e0e0;padding:32px}}
+      table{{width:100%;border-collapse:collapse}}th,td{{padding:8px 12px;border-bottom:1px solid #333;text-align:left}}</style></head>
+      <body><h1>Semgrep SAST Report</h1><div>{ts} | Findings: {total}</div>
+      <table><tr><th>Severity</th><th>Location</th><th>Message</th><th>Rule</th></tr>{rows or '<tr><td colspan="4">✅ No findings</td></tr>'}</table></body></html>"""
+      with open(html_path, "w") as f: f.write(page)
+      print(f"[SAST] Report → {html_path} ({total} findings)")
+      PYEOF
+  tags: [shared-runner-dev-shell]
+  only: [main]
+  artifacts:
+    paths: [${SEMGREP_REPORT}.html]
+    expire_in: 7 days
+
+trivyfs_scan:
+  stage: sast-sca
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - docker run --rm -v $PWD:/src -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy fs /src --severity HIGH,CRITICAL --format template --template "@contrib/html.tpl" --output /src/$TRIVYFS_REPORT.html || true
+  tags: [shared-runner-dev-shell]
+  only: [main]
+  artifacts:
+    paths: [$TRIVYFS_REPORT.html]
+    expire_in: 7 days
+
+# =============================================================================
+# STAGE 2: BUILD — Build Docker images & push Harbor
+# =============================================================================
+
+build_images:
+  stage: build
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - echo "[BUILD] Building all 7 Docker images..."
+    - |
+      # Đăng nhập Harbor
+      docker login ${HARBOR_REGISTRY} -u ${HARBOR_USERNAME} -p ${HARBOR_PASSWORD} || true
+
+      IMAGE_TAG="${CI_COMMIT_SHORT_SHA}"
+
+      # Build backend services
+      for svc in discovery-server config-server api-gateway product-service shopping-cart-service user-service; do
+        echo "[BUILD] Building ${svc}..."
+        cd shopnow-backend/${svc}
+        docker build -t ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${svc}:${IMAGE_TAG} .
+        docker push ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${svc}:${IMAGE_TAG}
+        cd ../..
+      done
+
+      # Build frontend
+      echo "[BUILD] Building shopnow-frontend..."
+      cd shopnow-frontend
+      docker build -t ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/shopnow-frontend:${IMAGE_TAG} .
+      docker push ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/shopnow-frontend:${IMAGE_TAG}
+      cd ..
+
+    - echo "[BUILD] All images built and pushed with tag: ${IMAGE_TAG}"
+  tags: [shared-runner-dev-shell]
+  only: [main]
+
+# =============================================================================
+# STAGE 3: DEPLOY STAGING (docker-compose test)
+# =============================================================================
+
+deploy_staging:
+  stage: deploy-staging
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: clone
+  script:
+    - echo "[DEPLOY] Deploying to Staging via docker-compose..."
+    - cd shopnow-backend
+    - docker-compose down || true
+    - docker system prune -a --volumes -f || true
+    - docker-compose up -d --build || true
+    - cd ..
+  tags: [shared-runner-dev-shell]
+  only: [main]
+
+# =============================================================================
+# STAGE 4: DAST
+# =============================================================================
+
+owasp_zap_dast:
+  stage: dast
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+    - if [ -z "$TARGET_URL" ]; then echo "ERROR - TARGET_URL not configured!"; exit 1; fi
+  script:
+    - REPORT_FILE="${OWASP_ZAP_REPORT}.html"
+    - docker run --rm -v $(pwd):/zap/wrk/:rw -t ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t $TARGET_URL -r $REPORT_FILE || true
+    - sudo chown -R gitlab-runner:gitlab-runner $(pwd) || true
+    - ls -lah "$REPORT_FILE" || true
+  tags: [shared-runner-dev-shell]
+  only: [main]
+  artifacts:
+    paths: ["${OWASP_ZAP_REPORT}.html"]
+    expire_in: 7 days
+    when: always
+
+# =============================================================================
+# STAGE 5: UPDATE GITOPS — Cập nhật image tag → ArgoCD deploy 🆕
+# =============================================================================
+# Đây là job quan trọng nhất trong GitOps flow:
+#   1. Clone repo shopnow-gitops
+#   2. Thay image tag (newTag) mới bằng sed
+#   3. Commit + push → ArgoCD tự detect → auto deploy lên K8s
+
+update_gitops:
+  stage: update-gitops
+  variables:
+    GIT_STRATEGY: none  # Không cần checkout code từ repo này
+  before_script:
+    - if [ -z "$GITOPS_TOKEN" ]; then echo "ERROR - GITOPS_TOKEN not configured!"; exit 1; fi
+  script:
+    - echo "[GITOPS] Updating image tags in shopnow-gitops repo..."
+
+    # Clone gitops repo
+    - git clone http://gitlab-ci-token:${GITOPS_TOKEN}@gitlab.luo.io.vn/root/shopnow-gitops.git /tmp/gitops
+    - cd /tmp/gitops
+
+    # Cập nhật image tag trong overlays/production/kustomization.yaml
+    - IMAGE_TAG="${CI_COMMIT_SHORT_SHA}"
+    - echo "[GITOPS] Setting image tag: ${IMAGE_TAG}"
+
+    # Dùng sed thay newTag cho tất cả images
+    - sed -i "s/newTag:.*/newTag: \"${IMAGE_TAG}\"/" overlays/production/kustomization.yaml
+
+    # Hiển thị diff
+    - echo "[GITOPS] Changes:"
+    - git diff
+
+    # Commit & push
+    - git config user.email "gitlab-ci@luo.io.vn"
+    - git config user.name "GitLab CI Bot"
+    - git add overlays/production/kustomization.yaml
+    - git commit -m "🚀 deploy: update all images → ${IMAGE_TAG}" || echo "No changes to commit"
+    - git push origin main || echo "Push failed (maybe no changes)"
+
+    - echo "[GITOPS] ✅ GitOps repo updated!"
+    - echo "[GITOPS] → ArgoCD will auto-detect and deploy to K8s"
+  after_script:
+    - rm -rf /tmp/gitops || true
+  tags: [shared-runner-dev-shell]
+  only: [main]
+  # Chỉ chạy khi build_images thành công
+  needs: [build_images]
