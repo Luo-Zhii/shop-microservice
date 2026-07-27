@@ -5,7 +5,7 @@
 #   --nodes 2 \
 #   --managed
 
-
+  # DB_HOST: "shopnow-postgres-db.crwwiee2uoly.ap-southeast-1.rds.amazonaws.com" # Lấy endpoint RDS từ Terraform
 # ==========================================
 # 1. CONFIGMAP (Cấu hình chung cho toàn hệ thống)
 # ==========================================
@@ -14,10 +14,11 @@ kind: ConfigMap
 metadata:
   name: shop-env-config
 data:
-  DB_HOST: "shopnow-postgres-db.crwwiee2uoly.ap-southeast-1.rds.amazonaws.com" # Lấy endpoint RDS từ Terraform
+  DB_HOST: "postgres" # Trỏ thẳng vào Service nội bộ của Postgres trong K8s
   DB_PORT: "5432"
   DB_NAME: "postgres"
   DB_USER: "shop_admin"
+  DB_PASSWORD: "123456" # Đồng bộ mật khẩu khớp 100% với Pod PostgreSQL bên dưới
   KEYCLOAK_TOKEN_URL: "http://keycloak-service:8080/realms/java-microservice-realm/protocol/openid-connect/token"
   KEYCLOAK_ISSUER: "http://keycloak-service:8080/realms/java-microservice-realm"
   KEYCLOAK_JWKS_URI: "http://keycloak-service:8080/realms/java-microservice-realm/protocol/openid-connect/certs"
@@ -67,19 +68,14 @@ spec:
             - containerPort: 5865
           envFrom:
             - configMapRef:
-                name: shop-env-config
+                name: shop-env-config # Tự động nạp DB_PASSWORD, DB_HOST từ ConfigMap ở trên
           env:
             - name: PORT
               value: "5865"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dev-shopnow-env-vars
-                  key: DB_PASSWORD
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: dev-shopnow-env-vars
+                  name: dev-shopnow-env-vars-v2
                   key: KEYCLOAK_CLIENT_SECRET
 
 ---
@@ -121,15 +117,10 @@ spec:
             - containerPort: 5861
           envFrom:
             - configMapRef:
-                name: shop-env-config
+                name: shop-env-config # Tự động nạp cấu hình DB chuẩn
           env:
             - name: PORT
               value: "5861"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dev-shopnow-env-vars
-                  key: DB_PASSWORD
 
 ---
 # ==========================================
@@ -174,11 +165,6 @@ spec:
           env:
             - name: PORT
               value: "5863"
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: dev-shopnow-env-vars
-                  key: DB_PASSWORD
 
 ---
 # ==========================================
@@ -233,7 +219,7 @@ spec:
     - protocol: TCP
       port: 5860
       targetPort: 5860
-  type: LoadBalancer # Mở cổng LoadBalancer để nhận traffic từ bên ngoài
+  type: LoadBalancer
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -261,3 +247,53 @@ spec:
           env:
             - name: PORT
               value: "5860"
+
+---
+# ==========================================
+# 7. POSTGRESQL DATABASE (Database nội bộ K8s)
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: shop_admin
+            - name: POSTGRES_PASSWORD
+              value: "123456" # Khớp hoàn toàn với ConfigMap ở trên
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-storage
+      volumes:
+        - name: postgres-storage
+          emptyDir: {}

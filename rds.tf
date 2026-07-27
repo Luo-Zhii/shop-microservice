@@ -11,7 +11,7 @@ variable "db_password" {
 
 # Tạo Két sắt AWS Secrets Manager
 resource "aws_secretsmanager_secret" "app_env_secrets" {
-  name        = "dev-shopnow-env-vars"
+  name        = "dev-shopnow-env-vars-v2"
   description = "Kho lưu trữ toàn bộ biến môi trường và cấu hình backend"
 }
 

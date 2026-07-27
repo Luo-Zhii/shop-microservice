@@ -1,25 +1,49 @@
-const axios = require('axios');
+const { Client } = require('pg');
+
+// Kết nối trực tiếp vào PostgreSQL thông qua port-forward ở localhost
+const client = new Client({
+  host: 'localhost',
+  port: 5433,
+  database: 'postgres',
+  user: 'shop_admin',
+  password: '123456',
+});
 
 const products = [
-  { name: "Áo len ren màu hồng cardigan nữ", price: 250000, description: "Áo len cardigan mỏng nhẹ, thiết kế ren điệu đà, phù hợp thời tiết se lạnh.", category: "Thời Trang Nữ" },
-  { name: "Điện thoại Apple iPhone 15 Pro Max 256GB", price: 34990000, description: "iPhone 15 Pro Max với chip A17 Pro, camera 48MP và thiết kế titanium cao cấp.", category: "Điện Thoại & Phụ Kiện" },
-  { name: "Nike Air Jordan 1 Mid Chicago Toe Like Auth", price: 850000, description: "Giày sneaker thể thao với phối màu Chicago cổ điển, dễ phối đồ.", category: "Giày Dép Nam" },
-  { name: "MacBook Pro 14 inch M4 2024", price: 42990000, description: "MacBook Pro hiệu năng cao với vi xử lý M4 mới nhất, màn hình Liquid Retina XDR.", category: "Máy Tính & Laptop" },
-  { name: "Gel Rửa Mặt Emmié Soothing", price: 180000, description: "Sữa rửa mặt dạng gel dịu nhẹ, cân bằng độ pH, an toàn cho da nhạy cảm.", category: "Sắc Đẹp" },
-  { name: "Quần Tập Gym Nữ Cạp Chéo", price: 150000, description: "Quần legging tập gym tôn dáng, co giãn 4 chiều, thiết kế cạp chéo quyến rũ.", category: "Thời Trang Nữ" },
-  { name: "Dép đi trong nhà siêu xinh nam nữ", price: 35000, description: "Dép bông đi trong nhà êm ái, giữ ấm chân, đế chống trơn trượt hiệu quả.", category: "Nhà Cửa & Đời Sống" },
-  { name: "Máy giặt Electrolux Inverter 11 kg", price: 9500000, description: "Máy giặt lồng ngang với công nghệ Inverter tiết kiệm điện, giặt sạch sâu.", category: "Thiết Bị Điện Tử" }
+  { name: "Áo len ren màu hồng cardigan nữ", price: 200000, description: "Áo len thời trang nữ", category: "fashion" },
+  { name: "Điện thoại Apple iPhone 15 Pro Max 256GB", price: 29990000, description: "Điện thoại cao cấp", category: "electronics" },
+  { name: "Nike Air Jordan 1 Mid Chicago Toe Like Auth", price: 3500000, description: "Giày thể thao", category: "shoes" },
+  { name: "MacBook Pro 14 inch M4 2024", price: 39990000, description: "Laptop hiệu năng cao", category: "electronics" },
+  { name: "Gel Rửa Mặt Emmié Soothing", price: 220000, description: "Mỹ phẩm chăm sóc da", category: "beauty" },
+  { name: "Quần Tập Gym Nữ Cạp Chéo", price: 150000, description: "Đồ tập thể thao", category: "sports" },
+  { name: "Dép đi trong nhà siêu xinh nam nữ", price: 35000, description: "Đồ gia dụng tiện ích", category: "home" },
+  { name: "Máy giặt Electrolux Inverter 11 kg", price: 9500000, description: "Thiết bị điện gia dụng", category: "home" }
 ];
 
-async function seed() {
-  for (const product of products) {
-    try {
-      await axios.post('http://localhost:5861/api/product', product);
-      console.log(`Added: ${product.name}`);
-    } catch (e) {
-      console.error(`Failed to add ${product.name}: ${e.message}`);
+async function seedDirectly() {
+  try {
+    console.log('Connecting directly to PostgreSQL inside K8s...');
+    await client.connect();
+    console.log('Database connected successfully!\n');
+
+    for (const p of products) {
+      try {
+        await client.query(
+          'INSERT INTO product (name, price, description, category) VALUES ($1, $2, $3, $4)',
+          [p.name, p.price, p.description, p.category]
+        );
+        console.log(`Successfully inserted into DB: ${p.name}`);
+      } catch (err) {
+        console.error(`Failed to insert ${p.name}: ${err.message}`);
+      }
     }
+
+    console.log('\nAll products seeded successfully via direct database connection!');
+  } catch (error) {
+    console.error('Database connection failed:', error.message);
+  } finally {
+    await client.end();
   }
 }
 
-seed();
+seedDirectly();
