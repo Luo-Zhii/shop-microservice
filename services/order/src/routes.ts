@@ -19,7 +19,7 @@ import type { SagaConfig } from './config';
 import { checkoutSchema, createCheckout } from './checkout';
 import { emitOrderEvent, loadOrders, lockCheckout, lockOrder, ordersCancelled, transition, type OrderRow } from './repo';
 import type { Log } from './repo';
-import { cancelCheckout, requestRefund } from './saga';
+import { cancelCheckout, requestRefund, requestRestock } from './saga';
 
 const STATUSES: OrderStatus[] = ['PENDING', 'AWAITING_PAYMENT', 'CONFIRMED', 'SHIPPING', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'RETURN_REQUESTED', 'RETURNED'];
 /** Đơn được tính doanh thu / GMV (đã chốt, chưa huỷ / trả). */
@@ -163,7 +163,8 @@ export function registerRoutes(app: FastifyInstance, rd: RouteDeps) {
       ordersCancelled().inc({ reason: 'BUYER_CANCELLED' });
       let refundRequested = false;
       if (o.payment_method !== 'COD' && co.paid_at) refundRequested = await requestRefund(c, o, 'BUYER_CANCELLED');
-      // Kho đã commit khi CONFIRMED → không nhả (hợp đồng chưa có lệnh hoàn kho sau commit).
+      // Kho đã commit khi CONFIRMED → hoàn kho bằng lệnh inventory.restock.
+      await requestRestock(c, o, 'BUYER_CANCELLED');
       return { ok: true, status: 'CANCELLED', cancelledOrderIds: [o.id], refundRequested };
     });
   });
@@ -203,6 +204,7 @@ export function registerRoutes(app: FastifyInstance, rd: RouteDeps) {
         await transition(c, o, 'RETURNED', ctx.log, { note: note ? `Đồng ý trả hàng: ${note}` : 'Đồng ý trả hàng' });
         await emitOrderEvent(c, 'order.returned', o.id);
         await requestRefund(c, o, 'RETURNED');
+        await requestRestock(c, o, 'RETURNED');
         return { ok: true, status: 'RETURNED' };
       }
       await transition(c, o, 'DELIVERED', ctx.log, { note: note ? `Từ chối trả hàng: ${note}` : 'Từ chối trả hàng' });

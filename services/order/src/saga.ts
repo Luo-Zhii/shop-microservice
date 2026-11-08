@@ -10,6 +10,7 @@ import {
   type PaymentRequest,
   type PaymentSucceeded,
   type ShipmentEvent,
+  type InventoryRestock,
 } from '@shopnow/contracts';
 import type { SagaConfig } from './config';
 import {
@@ -103,6 +104,13 @@ export async function requestRefund(c: PoolClient, o: OrderRow, reason: string) 
     createEvent('payment.refund', 'order', o.checkout_id, { checkoutId: o.checkout_id, orderId: o.id, amount: Number(o.total), reason }),
   );
   return true;
+}
+
+/** Hoàn kho cho đơn đã trừ kho (huỷ sau CONFIRMED / trả hàng được duyệt) — inventory idempotent theo (reservationId, orderId). */
+export async function requestRestock(c: PoolClient, o: OrderRow, reason: 'BUYER_CANCELLED' | 'RETURNED') {
+  const { rows } = await c.query('SELECT sku_id, qty FROM order_items WHERE order_id = $1', [o.id]);
+  const data: InventoryRestock = { reservationId: o.checkout_id, orderId: o.id, items: rows.map((r) => ({ skuId: r.sku_id, qty: r.qty })), reason };
+  await enqueue(c, Topics.inventoryCommand, createEvent('inventory.restock', 'order', o.checkout_id, data));
 }
 
 // ---------------- Handlers theo từng loại sự kiện ----------------

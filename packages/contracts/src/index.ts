@@ -126,6 +126,7 @@ export interface ShopSnapshot {
 // ---- payloads ----
 export interface InventoryReserve { reservationId: string; orderIds: string[]; items: { skuId: string; qty: number }[]; ttlSeconds: number }
 export interface InventoryRef { reservationId: string; reason?: string }
+export interface InventoryRestock { reservationId: string; orderId: string; items: { skuId: string; qty: number }[]; reason: 'BUYER_CANCELLED' | 'RETURNED' }
 export interface InventoryReserved { reservationId: string; expiresAt: string }
 export interface InventoryReserveFailed { reservationId: string; reason: string; skuIds: string[] }
 export interface StockChanged { skuId: string; available: number }

@@ -281,9 +281,15 @@ test('huỷ sau khi đã trả online → order.cancelled + payment.refund đún
   assert.deepEqual(refunds[0].data, { checkoutId: co.checkoutId, orderId: target.id, amount: Number(target.total), reason: 'BUYER_CANCELLED' });
   const [cancelled] = await outbox(target.id, 'order.cancelled');
   assert.equal(cancelled.data.reason, 'BUYER_CANCELLED');
-  // Đơn còn lại của checkout không bị ảnh hưởng; kho đã commit → không release
+  // Đơn còn lại của checkout không bị ảnh hưởng; kho đã commit → không release mà hoàn kho đúng các món của đơn này
   assert.deepEqual((await statuses(co.checkoutId)).sort(), ['CANCELLED', 'CONFIRMED']);
   assert.equal((await outbox(co.checkoutId, 'inventory.release')).length, 0);
+  const restocks = await outbox(co.checkoutId, 'inventory.restock');
+  assert.equal(restocks.length, 1);
+  assert.equal(restocks[0].topic, 'inventory.command.v1');
+  assert.equal(restocks[0].data.orderId, target.id);
+  assert.equal(restocks[0].data.reason, 'BUYER_CANCELLED');
+  assert.ok(restocks[0].data.items.length >= 1 && restocks[0].data.items.every((i: { qty: number }) => i.qty > 0));
   // Huỷ lần 2 → 409, không hoàn thêm
   const again = await app.inject({ method: 'POST', url: `/orders/${target.id}/cancel`, headers: auth(buyer) });
   assert.equal(again.statusCode, 409);
@@ -327,6 +333,9 @@ test('trả hàng: yêu cầu trong 7 ngày → admin duyệt → RETURNED + pay
   assert.equal(refunds.length, 1);
   assert.equal(refunds[0].data.amount, 230_000);
   assert.equal(refunds[0].data.reason, 'RETURNED');
+  const restock = await outbox(co.checkoutId, 'inventory.restock');
+  assert.equal(restock.length, 1);
+  assert.equal(restock[0].data.reason, 'RETURNED');
 
   // Từ chối
   const second = await deliveredOrder('COD');
@@ -334,6 +343,7 @@ test('trả hàng: yêu cầu trong 7 ngày → admin duyệt → RETURNED + pay
   const rej = await app.inject({ method: 'POST', url: `/admin/orders/${second.oid}/return/reject`, headers: auth(adminT), payload: { note: 'Sản phẩm đã qua sử dụng' } });
   assert.equal(rej.json().status, 'DELIVERED');
   assert.equal((await outbox(second.co.checkoutId, 'payment.refund')).length, 0);
+  assert.equal((await outbox(second.co.checkoutId, 'inventory.restock')).length, 0);
 
   // Quá cửa sổ 7 ngày
   await pool.query(`UPDATE orders SET delivered_at = now() - interval '8 days' WHERE id = $1`, [second.oid]);
