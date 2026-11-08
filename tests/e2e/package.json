@@ -1,0 +1,1 @@
+{ "name": "@shopnow/e2e", "version": "2.0.0", "private": true, "scripts": { "test": "tsx run.ts" } }

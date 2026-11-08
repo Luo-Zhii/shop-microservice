@@ -1,0 +1,24 @@
+{
+  "name": "shop-microservice",
+  "version": "1.0.0",
+  "description": "Source code ứng dụng ShopNow: Node.js Microservices + React Frontend.",
+  "main": "seed_products.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Luo-Zhii/shop-microservice.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Luo-Zhii/shop-microservice/issues"
+  },
+  "homepage": "https://github.com/Luo-Zhii/shop-microservice#readme",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "pg": "^8.22.0"
+  }
+}

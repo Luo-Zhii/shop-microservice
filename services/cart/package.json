@@ -1,0 +1,23 @@
+{
+  "name": "@shopnow/cart",
+  "version": "2.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "node ../../scripts/build-service.mjs",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@shopnow/contracts": "workspace:*",
+    "@shopnow/platform": "workspace:*",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {}
+}

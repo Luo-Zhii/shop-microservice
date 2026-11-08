@@ -1,24 +1,23 @@
 {
-  "name": "shop-microservice",
-  "version": "1.0.0",
-  "description": "Source code ứng dụng ShopNow: Node.js Microservices + React Frontend.",
-  "main": "seed_products.js",
+  "name": "shopnow",
+  "private": true,
+  "version": "2.0.0",
+  "description": "ShopNow v2 — sàn TMĐT microservice (DevSecOps + AIOps thesis)",
+  "packageManager": "pnpm@10.8.1",
+  "engines": { "node": ">=22" },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "typecheck": "pnpm -r --parallel --filter \"./packages/*\" --filter \"./services/*\" run typecheck",
+    "test": "pnpm -r --filter \"./packages/*\" --filter \"./services/*\" run test",
+    "build": "pnpm -r --filter \"./services/*\" run build",
+    "infra:up": "docker compose -f deploy/compose/infra.yml up -d",
+    "infra:down": "docker compose -f deploy/compose/infra.yml down",
+    "dev": "bash scripts/dev.sh",
+    "e2e": "tsx tests/e2e/run.ts"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Luo-Zhii/shop-microservice.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Luo-Zhii/shop-microservice/issues"
-  },
-  "homepage": "https://github.com/Luo-Zhii/shop-microservice#readme",
-  "dependencies": {
-    "axios": "^1.18.1",
-    "pg": "^8.22.0"
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }

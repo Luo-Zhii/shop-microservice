@@ -1,0 +1,25 @@
+{
+  "name": "@shopnow/api-gateway",
+  "version": "2.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "migrations"
+  ],
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "node ../../scripts/build-service.mjs",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@fastify/http-proxy": "^11.0.1",
+    "@fastify/rate-limit": "^10.2.1",
+    "@shopnow/contracts": "workspace:*",
+    "@shopnow/platform": "workspace:*",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,44 @@
+# Hạ tầng dev local cho ShopNow v2. Service ứng dụng chạy bằng `pnpm dev` (node trực tiếp) để tiết kiệm RAM/ổ đĩa.
+# Bật thêm quan sát: docker compose -f infra.yml --profile observability up -d
+name: shopnow-infra
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: shopnow, POSTGRES_PASSWORD: shopnow, POSTGRES_DB: postgres }
+    command: ["postgres", "-c", "max_connections=300", "-c", "shared_buffers=128MB"]
+    ports: ["55432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U shopnow"], interval: 5s, retries: 20 }
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["56379:6379"]
+  kafka:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.2.18
+    command:
+      - redpanda start --mode dev-container --smp 1 --memory 512M --reserve-memory 0M --overprovisioned
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:59092
+      - --advertise-kafka-addr internal://kafka:9092,external://localhost:59092
+      - --set redpanda.auto_create_topics_enabled=true
+    ports: ["59092:59092"]
+    healthcheck: { test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"], interval: 5s, retries: 30 }
+  mongo:
+    image: mongo:7
+    command: ["--wiredTigerCacheSizeGB", "0.25", "--quiet"]
+    ports: ["57017:27017"]
+    volumes: [mongodata:/data/db]
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment: { MINIO_ROOT_USER: minioadmin, MINIO_ROOT_PASSWORD: minioadmin }
+    ports: ["59000:9000", "59001:9001"]
+    volumes: [miniodata:/data]
+  mailpit:
+    image: public.ecr.aws/supabase/mailpit:v1.31.3
+    ports: ["51025:1025", "58025:8025"]
+  # ---- profile observability: OTel Collector + Grafana LGTM (Loki, Grafana, Tempo, Mimir) ----
+  lgtm:
+    profiles: [observability]
+    image: grafana/otel-lgtm:0.8.1
+    ports: ["3001:3000", "4318:4318", "4317:4317"]
+volumes: { pgdata: {}, mongodata: {}, miniodata: {} }
