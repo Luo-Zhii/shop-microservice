@@ -1,0 +1,9 @@
+[project]
+name = "shopnow-ai-service"
+version = "2.0.0"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

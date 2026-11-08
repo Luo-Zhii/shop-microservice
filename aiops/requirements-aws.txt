@@ -1,0 +1,3 @@
+# Tuỳ chọn. Adapter Bedrock trong aiops/llm tự ký SigV4 bằng httpx nên KHÔNG cần boto3.
+# Chỉ cài nếu muốn lấy credential qua chuỗi provider đầy đủ của AWS (SSO, IMDS, web identity…) bằng boto3:
+boto3==1.40.0

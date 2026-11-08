@@ -1,0 +1,17 @@
+# Thí nghiệm thật (Chaos Mesh). Đường dẫn manifest tương đối với file này.
+# expected_root_cause mặc định đọc từ annotation aiops.shopnow.io/expected-root-cause của manifest.
+defaults:
+  namespace: shopnow
+  observe_seconds: 300        # để lỗi chạy bao lâu trước khi gỡ (≤ duration của manifest)
+  detect_timeout_seconds: 600
+  recover_timeout_seconds: 900
+  cooldown_seconds: 300       # nghỉ giữa các thí nghiệm để metric về baseline
+  poll_seconds: 10
+experiments:
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/pod-kill-order.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/network-delay-payment.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/http-abort-catalog.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/cpu-stress-inventory.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/postgres-latency.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/kafka-network-partition.yaml
+    observe_seconds: 240

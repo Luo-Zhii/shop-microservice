@@ -1,0 +1,111 @@
+# FAQ CSKH ShopNow — nguồn truy hồi cho chatbot (RAG). Mỗi mục: id, topic, question, answer, tags.
+- id: return-policy
+  topic: đổi trả
+  question: Chính sách đổi trả hàng của ShopNow như thế nào?
+  answer: Bạn được yêu cầu trả hàng trong vòng 7 ngày kể từ khi đơn ở trạng thái "Đã giao". Vào Đơn mua → chọn đơn → "Yêu cầu trả hàng", nêu lý do và đính kèm ảnh. Người bán/ShopNow duyệt trong 48 giờ; khi được duyệt bạn gửi hàng về theo hướng dẫn.
+  tags: [đổi trả, hoàn hàng, trả hàng, return, đổi size, lỗi sản phẩm]
+- id: refund-time
+  topic: hoàn tiền
+  question: Bao lâu thì tôi nhận được tiền hoàn?
+  answer: Sau khi yêu cầu trả hàng được chấp nhận (hoặc đơn đã thanh toán online bị huỷ), tiền được hoàn về phương thức thanh toán ban đầu trong 3–7 ngày làm việc tuỳ ngân hàng. Đơn COD chưa thanh toán thì không phát sinh hoàn tiền.
+  tags: [hoàn tiền, refund, tiền về, bao lâu]
+- id: cancel-order
+  topic: huỷ đơn
+  question: Làm sao để huỷ đơn hàng?
+  answer: Bạn có thể tự huỷ khi đơn còn ở trạng thái "Chờ xác nhận", "Chờ thanh toán" hoặc "Đã xác nhận" (chưa giao cho đơn vị vận chuyển). Vào Đơn mua → chọn đơn → "Huỷ đơn" và chọn lý do. Đơn đang giao thì không huỷ được, bạn có thể từ chối nhận hoặc yêu cầu trả hàng sau khi nhận.
+  tags: [huỷ đơn, hủy đơn, cancel, không muốn mua nữa]
+- id: shipping-time
+  topic: vận chuyển
+  question: Thời gian giao hàng mất bao lâu?
+  answer: Nội thành thường 1–2 ngày, liên tỉnh 2–5 ngày tuỳ khoảng cách và đơn vị vận chuyển. Thời gian dự kiến hiển thị ở bước thanh toán; mỗi shop giao riêng nên một lần mua nhiều shop có thể đến vào các ngày khác nhau.
+  tags: [giao hàng, vận chuyển, bao lâu, thời gian giao, ship]
+- id: shipping-fee
+  topic: vận chuyển
+  question: Phí vận chuyển được tính thế nào?
+  answer: Phí ship tính theo từng shop dựa trên khối lượng gói hàng, tỉnh lấy hàng và tỉnh nhận. Bạn có thể dùng voucher miễn phí vận chuyển để giảm phí; phí cuối cùng hiển thị trước khi đặt hàng.
+  tags: [phí ship, phí vận chuyển, freeship, miễn phí vận chuyển, cước]
+- id: track-order
+  topic: vận chuyển
+  question: Làm sao theo dõi đơn hàng đang giao?
+  answer: Vào Đơn mua → chọn đơn để xem mã vận đơn và hành trình (đã lấy hàng, đang vận chuyển, đã giao). Bạn cũng nhận thông báo trong ứng dụng và email mỗi khi trạng thái thay đổi.
+  tags: [theo dõi đơn, tra cứu vận đơn, mã vận đơn, tracking, đơn đang ở đâu]
+- id: payment-methods
+  topic: thanh toán
+  question: ShopNow hỗ trợ những phương thức thanh toán nào?
+  answer: ShopNow hỗ trợ thanh toán khi nhận hàng (COD) và thanh toán online qua VNPay (thẻ ATM nội địa, thẻ quốc tế, QR ngân hàng). Đơn online cần thanh toán trong 15 phút, quá hạn đơn sẽ tự huỷ và trả lại hàng giữ chỗ.
+  tags: [thanh toán, cod, vnpay, thẻ, chuyển khoản, payment]
+- id: payment-failed
+  topic: thanh toán
+  question: Thanh toán thất bại nhưng tài khoản đã bị trừ tiền thì sao?
+  answer: Nếu giao dịch thất bại mà ngân hàng đã trừ tiền, khoản tiền sẽ được ngân hàng/VNPay tự hoàn trong 1–5 ngày làm việc. Bạn có thể đặt lại đơn; nếu quá 5 ngày chưa nhận lại tiền hãy gửi mã giao dịch cho bộ phận hỗ trợ.
+  tags: [thanh toán lỗi, trừ tiền, giao dịch thất bại, payment failed]
+- id: voucher-use
+  topic: voucher
+  question: Cách dùng mã giảm giá (voucher)?
+  answer: Ở bước thanh toán, nhập mã hoặc chọn voucher có sẵn. Mỗi đơn có thể dùng một voucher của shop và một voucher của sàn (kể cả voucher miễn phí vận chuyển). Voucher có điều kiện giá trị đơn tối thiểu, thời hạn và số lượt dùng.
+  tags: [voucher, mã giảm giá, khuyến mãi, coupon, giảm giá]
+- id: voucher-invalid
+  topic: voucher
+  question: Tại sao voucher của tôi không áp dụng được?
+  answer: Voucher có thể không áp dụng do đơn chưa đạt giá trị tối thiểu, voucher hết hạn hoặc hết lượt, chỉ áp dụng cho shop/danh mục khác, hoặc bạn đã dùng vượt số lần cho phép. Kiểm tra điều kiện trong chi tiết voucher.
+  tags: [voucher lỗi, không áp dụng, mã không dùng được, hết hạn]
+- id: voucher-refund
+  topic: voucher
+  question: Huỷ đơn thì voucher đã dùng có được hoàn lại không?
+  answer: Khi đơn bị huỷ, voucher còn thời hạn sẽ được nhả lại vào ví voucher của bạn để dùng cho lần sau. Voucher đã hết hạn tại thời điểm huỷ thì không hoàn lại.
+  tags: [hoàn voucher, huỷ đơn voucher, mất voucher]
+- id: flash-sale
+  topic: khuyến mãi
+  question: Flash sale hoạt động thế nào?
+  answer: Flash sale bán số lượng giới hạn với giá giảm trong khung giờ cố định. Suất flash sale được giữ khi bạn đặt hàng thành công; nếu đơn bị huỷ hoặc quá hạn thanh toán, suất được trả lại cho người khác.
+  tags: [flash sale, giờ vàng, giảm giá sốc, săn sale]
+- id: account-register
+  topic: tài khoản
+  question: Làm sao đăng ký và xác minh tài khoản?
+  answer: Chọn Đăng ký, nhập email, mật khẩu và họ tên. ShopNow gửi mã OTP 6 số về email để xác minh. Bạn cũng có thể đăng nhập nhanh bằng Google.
+  tags: [đăng ký, tài khoản, otp, xác minh email, đăng nhập]
+- id: forgot-password
+  topic: tài khoản
+  question: Tôi quên mật khẩu thì làm thế nào?
+  answer: Ở màn hình đăng nhập chọn "Quên mật khẩu", nhập email để nhận mã OTP rồi đặt mật khẩu mới. Vì lý do bảo mật, mọi phiên đăng nhập cũ sẽ bị đăng xuất.
+  tags: [quên mật khẩu, đặt lại mật khẩu, reset password]
+- id: two-factor
+  topic: tài khoản
+  question: Bật xác thực hai lớp (2FA) như thế nào?
+  answer: Vào Tài khoản → Bảo mật → Bật xác thực hai lớp, quét mã QR bằng ứng dụng Google Authenticator hoặc tương tự rồi nhập mã 6 số để xác nhận.
+  tags: [2fa, xác thực hai lớp, bảo mật, authenticator]
+- id: become-seller
+  topic: người bán
+  question: Tôi muốn mở shop bán hàng trên ShopNow?
+  answer: Vào Kênh người bán → Đăng ký shop, điền tên shop, địa chỉ lấy hàng và thông tin liên hệ. Hồ sơ được quản trị viên duyệt; sau khi duyệt bạn có thể đăng sản phẩm (sản phẩm cũng cần được duyệt trước khi hiển thị).
+  tags: [mở shop, bán hàng, người bán, seller, đăng ký bán]
+- id: seller-payout
+  topic: người bán
+  question: Người bán nhận tiền bán hàng khi nào?
+  answer: Khi đơn hoàn tất, tiền hàng (trừ 5% phí sàn) được ghi có vào ví người bán. Người bán tạo yêu cầu rút tiền trong Kênh người bán → Ví, quản trị viên xử lý chuyển khoản.
+  tags: [rút tiền, ví người bán, phí sàn, payout, doanh thu]
+- id: review-product
+  topic: đánh giá
+  question: Làm sao để đánh giá sản phẩm đã mua?
+  answer: Sau khi đơn ở trạng thái "Hoàn tất", vào Đơn mua → "Đánh giá" để chấm sao, viết nhận xét và thêm ảnh. Mỗi sản phẩm trong một đơn được đánh giá một lần.
+  tags: [đánh giá, review, nhận xét, chấm sao]
+- id: confirm-received
+  topic: đơn hàng
+  question: Khi nào tôi nên bấm "Đã nhận hàng"?
+  answer: Hãy kiểm tra hàng rồi bấm "Đã nhận hàng" để hoàn tất đơn. Nếu bạn không bấm, hệ thống tự hoàn tất sau một thời gian kể từ khi giao thành công. Sau khi hoàn tất bạn vẫn có thể yêu cầu trả hàng trong thời hạn đổi trả.
+  tags: [đã nhận hàng, hoàn tất đơn, xác nhận nhận hàng]
+- id: out-of-stock
+  topic: đơn hàng
+  question: Vì sao đơn của tôi bị huỷ do hết hàng?
+  answer: Khi đặt hàng, hệ thống giữ tồn kho cho bạn. Nếu sản phẩm vừa hết hàng (người khác mua trước) đơn sẽ tự huỷ với lý do hết hàng, voucher được nhả lại và không bị trừ tiền.
+  tags: [hết hàng, out of stock, đơn bị huỷ, tồn kho]
+- id: counterfeit
+  topic: an toàn
+  question: Tôi nghi ngờ sản phẩm là hàng giả thì làm sao?
+  answer: Bạn có thể từ chối nhận hàng hoặc gửi yêu cầu trả hàng kèm hình ảnh, đồng thời báo cáo sản phẩm. ShopNow sẽ kiểm tra và có thể ẩn sản phẩm hoặc đình chỉ shop vi phạm.
+  tags: [hàng giả, hàng nhái, báo cáo, lừa đảo, kém chất lượng]
+- id: contact-support
+  topic: hỗ trợ
+  question: Liên hệ bộ phận chăm sóc khách hàng bằng cách nào?
+  answer: Bạn có thể chat với trợ lý ảo này 24/7, hoặc gửi email support@shopnow.local. Nhân viên CSKH làm việc 8:00–22:00 hằng ngày.
+  tags: [liên hệ, hỗ trợ, cskh, tổng đài, nhân viên]

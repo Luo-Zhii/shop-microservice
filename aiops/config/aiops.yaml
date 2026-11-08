@@ -1,0 +1,88 @@
+# Cấu hình AIOps cho ShopNow. Biến môi trường ghi đè: PROMETHEUS_URL, LOKI_URL, ALERTMANAGER_URL, AIOPS_NAMESPACE…
+namespace: shopnow
+step_seconds: 30
+services:
+  - api-gateway
+  - identity
+  - user-profile
+  - seller
+  - catalog
+  - search
+  - inventory
+  - cart
+  - promotion
+  - order
+  - payment
+  - shipping
+  - review
+  - notification
+  - ai-service
+
+# Đồ thị gọi tĩnh (fallback khi chưa có service graph từ Tempo/OTel). caller → callee.
+# sync = HTTP đồng bộ; async = qua Kafka (producer → consumer), trọng số lan truyền thấp hơn.
+graph:
+  sync:
+    api-gateway: [identity, user-profile, seller, catalog, search, inventory, cart, promotion, order, payment,
+                  shipping, review, notification, ai-service]
+    order: [catalog, shipping, promotion, user-profile, seller]
+    cart: [catalog, inventory]
+    catalog: [seller]
+  async:
+    order: [inventory, payment, shipping, promotion, cart, review, notification, ai-service]
+    inventory: [order, search]
+    payment: [order, notification]
+    shipping: [order, notification]
+    catalog: [search, inventory, ai-service]
+    identity: [user-profile, notification]
+    seller: [identity, catalog, notification]
+    review: [catalog, search, notification]
+  async_weight: 0.3
+
+# PromQL theo service; {window} = cửa sổ rate. Nhãn service phải có trên metric (prom-client defaultLabels,
+# hoặc relabel từ nhãn pod app.kubernetes.io/name ở scrape config).
+features:
+  p95: histogram_quantile(0.95, sum by (service, le) (rate(http_server_requests_seconds_bucket[{window}])))
+  err: >-
+    sum by (service) (rate(http_server_requests_seconds_count{status=~"5.."}[{window}]))
+    / clamp_min(sum by (service) (rate(http_server_requests_seconds_count[{window}])), 1e-9)
+  rps: sum by (service) (rate(http_server_requests_seconds_count[{window}]))
+  cpu: sum by (service) (rate(process_cpu_seconds_total[{window}]))
+  mem: sum by (service) (process_resident_memory_bytes) / 1048576
+  dlq: sum by (service) (rate(kafka_messages_consumed_total{result="dlq"}[{window}]))
+rate_window: 1m
+
+detection:
+  history_minutes: 120        # cửa sổ lấy từ Prometheus mỗi vòng
+  train_exclude_minutes: 10   # không huấn luyện IsolationForest trên 10 phút gần nhất
+  refit_minutes: 15
+  z_window: 60                # điểm (30 phút) cho median/MAD trượt
+  z_threshold: 4.5
+  score_threshold: 0.6        # ngưỡng điểm [0..1] để coi là bất thường
+  persistence: 2              # số bước liên tiếp vượt ngưỡng mới cảnh báo
+  log_weight: 0.8
+static_thresholds:            # baseline so sánh (giống PrometheusRule thông thường)
+  err: 0.05
+  p95: 1.0
+
+logs:
+  enabled: true
+  selector: '{namespace="shopnow"}'
+  service_label: service      # nhãn stream Loki chứa tên service (fallback: app, container)
+  error_regex: '(?i)(error|exception|fatal|panic|fail|timeout|refused)'
+  window_minutes: 2
+  limit: 5000
+
+rca:
+  top_k: 3
+  alpha: 0.85
+  anomaly_floor: 0.3
+  backward_weight: 0.1
+
+alerting:
+  alertname: AIOpsAnomaly
+  resolve_after_minutes: 5
+
+agent:
+  deploy_lookback_minutes: 30
+  dedup_minutes: 30
+  approval_ttl_minutes: 120

@@ -1,0 +1,9 @@
+tests
+samples
+eval/results
+aiops
+__pycache__
+*.pyc
+*.db
+*.jsonl
+.pytest_cache

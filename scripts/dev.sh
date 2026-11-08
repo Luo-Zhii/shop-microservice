@@ -48,10 +48,10 @@ start_inventory() {
 }
 
 start_python() {
-  local svc=$1 dir=$2 module=$3
+  local svc=$1 dir=$2; shift 2
   [[ -x "$ROOT/.venv/bin/python" ]] || { echo "⚠ chưa có .venv — bỏ qua $svc"; return; }
   (cd "$ROOT/$dir" && SERVICE_NAME=$svc PORT=${PORT[$svc]} DATABASE_URL="$PG/$(db_name "$svc")" \
-    nohup "$ROOT/.venv/bin/python" -m uvicorn "$module" --host 0.0.0.0 --port "${PORT[$svc]}" >"$RUN/logs/$svc.log" 2>&1 & echo $! >"$RUN/pids/$svc.pid")
+    nohup "$ROOT/.venv/bin/python" -m "$@" >"$RUN/logs/$svc.log" 2>&1 & echo $! >"$RUN/pids/$svc.pid")
 }
 
 case "${1:-up}" in
@@ -61,7 +61,8 @@ case "${1:-up}" in
     sleep 3
     for s in "${NODE_SERVICES[@]}"; do [[ $s == identity ]] || start_node "$s"; done
     start_inventory
-    start_python ai-service services/ai-service "${AI_APP:-app.main:app}"
+    start_python ai-service services/ai-service ai_service
+    [[ "${WITH_AIOPS:-0}" == 1 ]] && start_python aiops aiops aiops serve
     echo "Đang khởi động… xem trạng thái: scripts/dev.sh status (log: .dev/logs)"
     ;;
   down)

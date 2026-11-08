@@ -1,0 +1,20 @@
+# aiops runtime (pin theo venv đã kiểm thử, Python 3.13). Không có torch/transformers.
+fastapi==0.162.2
+uvicorn==0.54.0
+pydantic==2.14.3
+httpx==0.28.1
+numpy==2.5.4
+scipy==1.18.1
+scikit-learn==1.9.1
+networkx==3.7
+drain3==0.9.11
+PyYAML==6.0.3
+prometheus-client==0.26.0
+psycopg[binary]==3.3.8
+kubernetes==37.0.2
+opentelemetry-api==1.45.2
+opentelemetry-sdk==1.45.2
+opentelemetry-exporter-otlp-proto-http==1.45.2
+opentelemetry-instrumentation-fastapi==0.66b2
+# test (CI cài chung file này)
+pytest==9.2.0

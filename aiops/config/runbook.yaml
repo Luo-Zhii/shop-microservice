@@ -1,0 +1,34 @@
+# Runbook: luật chọn hành động, duyệt từ trên xuống, luật đầu tiên khớp được chọn.
+# Điều kiện (tất cả phải đúng): recent_deploy, crashloop, pod_restarted (bool, trên service gốc), symptoms_any (đặc trưng bất thường),
+# min_score. approval: required (chờ Duyệt qua Telegram/Slack) | auto.
+allow:
+  namespaces: [shopnow]
+  actions: [rollback, scale_up, restart]
+max_replicas: 6
+rules:
+  - name: rollback-after-bad-deploy
+    when: {recent_deploy: true}
+    action: rollback
+    approval: required
+    reason: "Service gốc vừa triển khai phiên bản mới trong 30 phút qua và bắt đầu bất thường ngay sau đó."
+  - name: restart-crashloop
+    when: {crashloop: true}
+    action: restart
+    approval: required
+    reason: "Pod ở trạng thái CrashLoopBackOff."
+  - name: pod-restarted-self-healing
+    when: {pod_restarted: true, crashloop: false}
+    action: notify
+    approval: auto
+    reason: "Pod vừa bị khởi động lại (OOMKill/eviction/node) và đã chạy lại — theo dõi, không can thiệp."
+  - name: scale-on-saturation
+    when: {recent_deploy: false, symptoms_any: [cpu, p95]}
+    action: scale_up
+    params: {step: 1}
+    approval: required
+    reason: "CPU/độ trễ tăng mà không có triển khai mới → nghi quá tải, tăng 1 replica."
+  - name: notify-only
+    when: {}
+    action: notify
+    approval: auto
+    reason: "Không có hành động tự động phù hợp — chuyển kỹ sư trực xử lý."
