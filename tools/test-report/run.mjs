@@ -9,7 +9,18 @@ import { join } from 'node:path';
 const ROOT = new URL('../..', import.meta.url).pathname;
 const args = process.argv.slice(2);
 const only = (args.find((a) => a.startsWith('--only='))?.split('=')[1] ?? 'node,go,python').split(',');
+// Kết quả lưu sau MỖI bộ test vào .dev/test-results.json → bị ngắt giữa chừng vẫn giữ được; --resume bỏ qua bộ đã có.
+const STATE = join(ROOT, '.dev/test-results.json');
+mkdirSync(join(ROOT, '.dev'), { recursive: true });
+const saved = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
+const resume = args.includes('--resume');
 const suites = [];
+const done = (name) => resume && saved[name];
+function record(s) {
+  suites.push(s);
+  saved[s.name] = s;
+  writeFileSync(STATE, JSON.stringify(saved, null, 1));
+}
 
 function run(cmd, argv, cwd, env = {}) {
   const t = Date.now();
@@ -41,16 +52,17 @@ if (only.includes('node')) {
     if (!existsSync(join(ROOT, dir, 'package.json')) || !existsSync(testDir)) continue;
     const files = readdirSync(testDir).filter((f) => f.endsWith('.test.ts')).map((f) => `test/${f}`);
     if (!files.length) continue;
+    if (done(dir)) continue;
     process.stdout.write(`▶ ${dir} … `);
     const r = run(join(ROOT, 'node_modules/.bin/tsx'), ['--test', '--test-reporter=tap', '--test-concurrency=1', ...files], join(ROOT, dir));
     const cases = parseTap(r.out);
-    suites.push({ name: dir, lang: 'Node/TS', cases, ms: r.ms, code: r.code });
+    record({ name: dir, lang: 'Node/TS', cases, ms: r.ms, code: r.code });
     console.log(`${cases.filter((c) => c.ok).length}/${cases.length} (${(r.ms / 1000).toFixed(1)}s)`);
   }
 }
 
 // ---- Go (go test -json trong container golang) ----
-if (only.includes('go') && !args.includes('--skip-go') && existsSync(join(ROOT, 'services/inventory/go.mod'))) {
+if (only.includes('go') && !args.includes('--skip-go') && !done('services/inventory') && existsSync(join(ROOT, 'services/inventory/go.mod'))) {
   process.stdout.write('▶ services/inventory (Go) … ');
   const r = run('docker', [
     'run', '--rm', '--network', 'host', '-v', `${join(ROOT, 'services/inventory')}:/src`, '-v', 'shopnow-gomod:/go/pkg/mod',
@@ -66,7 +78,7 @@ if (only.includes('go') && !args.includes('--skip-go') && existsSync(join(ROOT, 
       }
     } catch {}
   }
-  suites.push({ name: 'services/inventory', lang: 'Go', cases, ms: r.ms, code: r.code });
+  record({ name: 'services/inventory', lang: 'Go', cases, ms: r.ms, code: r.code });
   console.log(`${cases.filter((c) => c.ok).length}/${cases.length}`);
 }
 
@@ -74,7 +86,7 @@ if (only.includes('go') && !args.includes('--skip-go') && existsSync(join(ROOT, 
 const py = join(ROOT, '.venv/bin/python');
 if (only.includes('python') && existsSync(py)) {
   for (const dir of ['services/ai-service', 'aiops']) {
-    if (!existsSync(join(ROOT, dir))) continue;
+    if (!existsSync(join(ROOT, dir)) || done(dir)) continue;
     process.stdout.write(`▶ ${dir} (Python) … `);
     const xml = join(ROOT, '.dev', `junit-${dir.replace('/', '-')}.xml`);
     mkdirSync(join(ROOT, '.dev'), { recursive: true });
@@ -87,12 +99,14 @@ if (only.includes('python') && existsSync(py)) {
         cases.push({ name: `${m[1].split('.').pop()} › ${m[2]}`, ok: !/<(failure|error)/.test(body), skip: /<skipped/.test(body) });
       }
     }
-    suites.push({ name: dir, lang: 'Python', cases, ms: r.ms, code: r.code });
+    record({ name: dir, lang: 'Python', cases, ms: r.ms, code: r.code });
     console.log(`${cases.filter((c) => c.ok).length}/${cases.length}`);
   }
 }
 
-// ---- Báo cáo ----
+// ---- Báo cáo (gộp mọi bộ đã lưu) ----
+suites.length = 0;
+suites.push(...Object.values(saved).sort((a, b) => a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name)));
 const total = suites.reduce((n, s) => n + s.cases.length, 0);
 const passed = suites.reduce((n, s) => n + s.cases.filter((c) => c.ok).length, 0);
 const esc = (s) => s.replace(/\|/g, '\\|');
