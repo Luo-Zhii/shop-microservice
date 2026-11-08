@@ -1,25 +1,52 @@
 # Báo cáo kiểm thử tự động
 
-Sinh tự động bởi `tools/test-report/run.mjs` lúc 2026-11-08T12:42:53.155Z trên máy dev.
+Sinh tự động bởi `tools/test-report/run.mjs` lúc 2026-11-08T14:43:05.691Z trên máy dev.
 
-**Tổng: 96/96 test đạt** (14 bộ test, chạy tuần tự).
+**Tổng: 179/179 test đạt** (17 bộ test, chạy tuần tự).
 
 | Bộ test | Ngôn ngữ | Đạt | Tổng | Thời gian | Kết quả |
 |---|---|---|---|---|---|
-| packages/platform | Node/TS | 3 | 3 | 0.9s | ✅ |
-| services/api-gateway | Node/TS | 9 | 9 | 43.3s | ✅ |
-| services/cart | Node/TS | 6 | 6 | 2.9s | ✅ |
-| services/catalog | Node/TS | 2 | 2 | 94.3s | ✅ |
-| services/identity | Node/TS | 11 | 11 | 190.0s | ✅ |
-| services/notification | Node/TS | 7 | 7 | 57.4s | ✅ |
-| services/order | Node/TS | 13 | 13 | 136.4s | ✅ |
-| services/payment | Node/TS | 6 | 6 | 81.1s | ✅ |
-| services/promotion | Node/TS | 9 | 9 | 122.0s | ✅ |
-| services/review | Node/TS | 4 | 4 | 94.8s | ✅ |
-| services/search | Node/TS | 12 | 12 | 50.9s | ✅ |
-| services/seller | Node/TS | 3 | 3 | 133.1s | ✅ |
-| services/shipping | Node/TS | 6 | 6 | 27.8s | ✅ |
-| services/user-profile | Node/TS | 5 | 5 | 100.4s | ✅ |
+| services/inventory | Go | 19 | 19 | 84.7s | ✅ |
+| packages/platform | Node/TS | 3 | 3 | 1.0s | ✅ |
+| services/api-gateway | Node/TS | 9 | 9 | 10.9s | ✅ |
+| services/cart | Node/TS | 6 | 6 | 4.0s | ✅ |
+| services/catalog | Node/TS | 2 | 2 | 52.4s | ✅ |
+| services/identity | Node/TS | 11 | 11 | 63.0s | ✅ |
+| services/notification | Node/TS | 7 | 7 | 57.2s | ✅ |
+| services/order | Node/TS | 13 | 13 | 47.7s | ✅ |
+| services/payment | Node/TS | 6 | 6 | 48.9s | ✅ |
+| services/promotion | Node/TS | 9 | 9 | 18.3s | ✅ |
+| services/review | Node/TS | 4 | 4 | 21.3s | ✅ |
+| services/search | Node/TS | 12 | 12 | 14.5s | ✅ |
+| services/seller | Node/TS | 3 | 3 | 11.6s | ✅ |
+| services/shipping | Node/TS | 6 | 6 | 12.5s | ✅ |
+| services/user-profile | Node/TS | 5 | 5 | 12.7s | ✅ |
+| aiops | Python | 32 | 32 | 47.1s | ✅ |
+| services/ai-service | Python | 32 | 32 | 127.8s | ✅ |
+
+## services/inventory
+
+| # | Test | Kết quả |
+|---|---|---|
+| 1 | kafka › TestDispatchRetriesThenDLQ | ✅ |
+| 2 | kafka › TestDispatchRecoversWithoutDLQ | ✅ |
+| 3 | httpapi › TestSellerCannotEditOtherShopSku | ✅ |
+| 4 | inventory › TestProductUpsertRegistersSkus | ✅ |
+| 5 | inventory › TestReserveAllOrNothing | ✅ |
+| 6 | inventory › TestReserveInvalidAndInactive | ✅ |
+| 7 | inventory › TestReserveDuplicateReservationReturnsPreviousResult | ✅ |
+| 8 | inventory › TestDuplicateEventProcessedOnce | ✅ |
+| 9 | inventory › TestCommit | ✅ |
+| 10 | inventory › TestRelease | ✅ |
+| 11 | inventory › TestExpire | ✅ |
+| 12 | httpapi › TestAuthRequired | ✅ |
+| 13 | inventory › TestSweeperSafeAcrossReplicas | ✅ |
+| 14 | inventory › TestConcurrentReserveNeverOversells | ✅ |
+| 15 | httpapi › TestSellerStockFlow | ✅ |
+| 16 | inventory › TestConcurrentMultiSkuNoDeadlock | ✅ |
+| 17 | inventory › TestSetOnHand | ✅ |
+| 18 | inventory › TestRestock | ✅ |
+| 19 | httpapi › TestOpsEndpoints | ✅ |
 
 ## packages/platform
 
@@ -186,3 +213,77 @@ Sinh tự động bởi `tools/test-report/run.mjs` lúc 2026-11-08T12:42:53.155
 | 3 | user thứ 2 không thấy / sửa / xoá được địa chỉ của người khác; /internal/addresses | ✅ |
 | 4 | wishlist thêm/kiểm tra/xoá, phân trang | ✅ |
 | 5 | recently viewed: mới nhất trước, không trùng, tối đa 50 | ✅ |
+
+## aiops
+
+| # | Test | Kết quả |
+|---|---|---|
+| 1 | test_agent_api › test_full_incident_flow_with_approval | ✅ |
+| 2 | test_agent_api › test_dedup_and_fault_start_mttd | ✅ |
+| 3 | test_agent_api › test_real_execution_marks_mitigated | ✅ |
+| 4 | test_agent_api › test_reject_and_validation | ✅ |
+| 5 | test_agent_api › test_webhook_token_required | ✅ |
+| 6 | test_ci_eval › test_redaction_covers_common_secrets | ✅ |
+| 7 | test_ci_eval › test_classify_sample_log | ✅ |
+| 8 | test_ci_eval › test_oom_and_missing_secret | ✅ |
+| 9 | test_ci_eval › test_cli_writes_markdown | ✅ |
+| 10 | test_ci_eval › test_cli_runs_as_module_from_aiops_dir | ✅ |
+| 11 | test_ci_eval › test_llm_analysis_path | ✅ |
+| 12 | test_ci_eval › test_synthetic_eval_small | ✅ |
+| 13 | test_ci_eval › test_chaos_runner_dry_run | ✅ |
+| 14 | test_collectors_engine › test_prometheus_range_by_label_aligns_grid | ✅ |
+| 15 | test_collectors_engine › test_loki_query_range | ✅ |
+| 16 | test_collectors_engine › test_service_graph_from_traces_merges_async_edges | ✅ |
+| 17 | test_collectors_engine › test_engine_scores_and_pushes_alert_with_source_label | ✅ |
+| 18 | test_detection › test_derive_shape_and_ffill | ✅ |
+| 19 | test_detection › test_robust_z_flags_latency_step_but_not_noise | ✅ |
+| 20 | test_detection › test_directional_traffic_increase_not_anomalous | ✅ |
+| 21 | test_detection › test_iforest_calibration_and_detection | ✅ |
+| 22 | test_detection › test_static_and_persist | ✅ |
+| 23 | test_detection › test_score_service_top_features | ✅ |
+| 24 | test_kube_runbook › test_recent_changes_and_previous_template | ✅ |
+| 25 | test_kube_runbook › test_pod_health_crashloop | ✅ |
+| 26 | test_kube_runbook › test_runbook_rules | ✅ |
+| 27 | test_kube_runbook › test_executor_allowlist_and_dry_run | ✅ |
+| 28 | test_logs_rca › test_parse_pino_json | ✅ |
+| 29 | test_logs_rca › test_new_error_template_and_spike | ✅ |
+| 30 | test_logs_rca › test_summarize_errors_groups_templates | ✅ |
+| 31 | test_logs_rca › test_rca_prefers_deepest_correlated_anomaly | ✅ |
+| 32 | test_logs_rca › test_static_graph_from_config_has_saga_edges | ✅ |
+
+## services/ai-service
+
+| # | Test | Kết quả |
+|---|---|---|
+| 1 | test_api › test_health_ready_metrics | ✅ |
+| 2 | test_api › test_recommend_product_co_purchase | ✅ |
+| 3 | test_api › test_recommend_product_content_when_no_cooc | ✅ |
+| 4 | test_api › test_recommend_unknown_product_popular | ✅ |
+| 5 | test_api › test_recommend_user_history | ✅ |
+| 6 | test_api › test_recommend_new_user_popular | ✅ |
+| 7 | test_api › test_semantic_search_no_accents_and_typo | ✅ |
+| 8 | test_api › test_chat_faq_fallback | ✅ |
+| 9 | test_api › test_chat_unaccented_payment | ✅ |
+| 10 | test_api › test_chat_product_suggestion | ✅ |
+| 11 | test_api › test_chat_follow_up_uses_history | ✅ |
+| 12 | test_api › test_chat_validation_error | ✅ |
+| 13 | test_api › test_generate_description_template | ✅ |
+| 14 | test_api › test_moderate_endpoint | ✅ |
+| 15 | test_api › test_model_rebuilds_after_event | ✅ |
+| 16 | test_llm › test_sigv4_matches_aws_documentation_example | ✅ |
+| 17 | test_llm › test_ollama_chat_and_embed | ✅ |
+| 18 | test_llm › test_anthropic_messages_api | ✅ |
+| 19 | test_llm › test_anthropic_refusal_and_http_error | ✅ |
+| 20 | test_llm › test_bedrock_converse_signed | ✅ |
+| 21 | test_llm › test_build_provider_from_env | ✅ |
+| 22 | test_llm › test_chat_uses_llm_with_context_and_falls_back | ✅ |
+| 23 | test_store_events › test_idempotent_by_event_id | ✅ |
+| 24 | test_store_events › test_non_approved_removed_and_delete | ✅ |
+| 25 | test_store_events › test_out_of_order_update_ignored | ✅ |
+| 26 | test_store_events › test_handle_message_results | ✅ |
+| 27 | test_text_moderation › test_strip_accents_vietnamese | ✅ |
+| 28 | test_text_moderation › test_clean_review_allowed | ✅ |
+| 29 | test_text_moderation › test_profanity_with_and_without_accents | ✅ |
+| 30 | test_text_moderation › test_no_false_positive_on_common_words | ✅ |
+| 31 | test_text_moderation › test_spam_link_phone_caps | ✅ |
+| 32 | test_text_moderation › test_repetition | ✅ |
