@@ -1,0 +1,16 @@
+digraph kafka {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=12, label="Topo sự kiện Kafka — producer → topic → consumer", labelloc=t, ranksep=1.1, nodesep=0.25, pad=0.3];
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6"];
+  edge [color="#666666", arrowsize=0.6];
+  subgraph cluster_p { label="Producer"; style=invis; p_identity [label="identity"]; p_seller [label="seller"]; p_catalog [label="catalog"]; p_order [label="order", fillcolor="#FCE8E6", color="#C5221F"]; p_inventory [label="inventory (Go)"]; p_payment [label="payment"]; p_shipping [label="shipping"]; p_review [label="review"]; }
+  node [shape=cds, fillcolor="#F1F3F4", color="#202124"];
+  t1 [label="identity.user.v1"]; t2 [label="seller.shop.v1"]; t3 [label="catalog.product.v1"]; t4 [label="inventory.command.v1"]; t5 [label="inventory.event.v1"];
+  t6 [label="payment.command.v1"]; t7 [label="payment.event.v1"]; t8 [label="order.v1"]; t9 [label="shipping.v1"]; t10 [label="review.v1"];
+  node [shape=box, style="rounded,filled", fillcolor="#E6F4EA", color="#137333"];
+  c_profile [label="user-profile"]; c_notif [label="notification"]; c_identity [label="identity"]; c_catalog [label="catalog"]; c_search [label="search"];
+  c_inventory [label="inventory"]; c_ai [label="ai-service"]; c_order [label="order"]; c_payment [label="payment"]; c_cart [label="cart"];
+  c_promo [label="promotion"]; c_shipping [label="shipping"]; c_review [label="review"];
+  p_identity -> t1; p_seller -> t2; p_catalog -> t3; p_order -> t4; p_inventory -> t5; p_order -> t6; p_payment -> t7; p_order -> t8; p_shipping -> t9; p_review -> t10;
+  t1 -> {c_profile c_notif}; t2 -> {c_identity c_catalog c_notif}; t3 -> {c_search c_inventory c_ai}; t4 -> c_inventory; t5 -> {c_order c_search};
+  t6 -> c_payment; t7 -> {c_order c_notif}; t8 -> {c_cart c_promo c_shipping c_payment c_review c_notif c_catalog c_ai}; t9 -> {c_order c_notif}; t10 -> {c_catalog c_notif};
+}

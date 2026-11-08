@@ -1,0 +1,18 @@
+digraph cicd {
+  graph [label="Pipeline DevSecOps → GitOps", labelloc=t, fontsize=20, fontname="DejaVu Sans", rankdir=LR, bgcolor=white];
+  node [shape=box, style="rounded,filled", fillcolor="#eef4ff", color="#3b6fd8", fontname="DejaVu Sans", fontsize=11];
+  edge [fontname="DejaVu Sans", fontsize=9];
+  push [label="push / PR", shape=oval, fillcolor="#fff3d6", color="#c98a00"];
+  changes [label="Phát hiện\nservice thay đổi"];
+  subgraph cluster_test { label="Song song"; style="rounded,dashed";
+    node_t [label="Node: typecheck + test"]; go_t [label="Go: vet + test -race"]; py_t [label="Python: pytest + eval AIOps"]; web_t [label="Web: tsc + build"];
+    sec [label="Gitleaks · Semgrep\nTrivy fs · Sonar", fillcolor="#fde8e8", color="#c0392b"]; }
+  gate [label="Cổng chặn", shape=diamond, fillcolor="#fff3d6", color="#c98a00"];
+  assist [label="ci-assistant\nLLM giải thích lỗi → PR", fillcolor="#f5e8ff", color="#8a3fd1"];
+  build [label="Build image"]; trivy [label="Trivy image\nchặn CRITICAL", fillcolor="#fde8e8", color="#c0392b"];
+  sign [label="Push · SBOM Syft\nCosign sign + attest"]; bump [label="images.yaml (dev)"]; argo [label="Argo CD sync\n→ Kyverno verifyImages", fillcolor="#dff5e3", color="#2e8b57"];
+  promote [label="PR promote\nstaging / prod"];
+  push -> changes -> {node_t go_t py_t web_t sec} -> gate;
+  gate -> assist [label="đỏ"]; gate -> build [label="xanh"];
+  build -> trivy -> sign -> bump -> argo; promote -> argo [style=dashed];
+}

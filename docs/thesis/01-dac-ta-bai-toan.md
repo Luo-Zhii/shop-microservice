@@ -176,7 +176,7 @@ Hệ thống xuất phát (v1 — repo `DevOps_Scripts`, `shop-gitops`, `shop-ap
 
 ## 1.9. Tiêu chí hoàn thành
 
-- Kịch bản e2e toàn sàn chạy qua hết (xem [03-test-plan.md](03-test-plan.md)).
+- Kịch bản e2e toàn sàn chạy qua hết (xem [05-kiem-thu.md](05-kiem-thu.md)).
 - Toàn bộ test tự động qua; báo cáo test sinh tự động ([test-report.md](test-report.md)).
 - Có bảng số liệu AIOps (F1, MTTD, Top-k) và DORA.
-- Có đủ sơ đồ thiết kế ([02-thiet-ke.md](02-thiet-ke.md)).
+- Có đủ sơ đồ thiết kế ([03-thiet-ke.md](03-thiet-ke.md)).

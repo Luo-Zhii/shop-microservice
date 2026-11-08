@@ -1,0 +1,28 @@
+digraph container {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=12, label="C4 mức 2 — Container ShopNow v2", labelloc=t, nodesep=0.35, ranksep=0.8, pad=0.3];
+  node  [shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6", fontname="DejaVu Sans", fontsize=10];
+  edge  [fontname="DejaVu Sans", fontsize=8, color="#555555"];
+  user [label="Người mua / bán / admin", shape=ellipse, fillcolor="#FFF3E0", color="#E65100"];
+  web  [label="web\nNext.js 15 (3 cổng)"];
+  gw   [label="api-gateway\nJWT · rate limit · BFF", fillcolor="#D2E3FC"];
+  subgraph cluster_svc { label="namespace shopnow"; style="rounded,dashed"; color="#999999"; fontname="DejaVu Sans";
+    identity [label="identity\nNode"]; profile [label="user-profile\nNode"]; seller [label="seller\nNode"]; catalog [label="catalog\nNode"];
+    search [label="search\nNode"]; cart [label="cart\nNode"]; promotion [label="promotion\nNode"]; order [label="order\nNode · saga", fillcolor="#FCE8E6", color="#C5221F"];
+    payment [label="payment\nNode"]; shipping [label="shipping\nNode"]; review [label="review\nNode"]; notification [label="notification\nNode"];
+    inventory [label="inventory\nGo", fillcolor="#E6F4EA", color="#137333"]; ai [label="ai-service\nPython", fillcolor="#FEF7E0", color="#B06000"];
+  }
+  kafka [label="Kafka\n10 topic + DLQ", shape=cylinder, fillcolor="#F1F3F4", color="#202124"];
+  pg [label="PostgreSQL\n1 DB / service", shape=cylinder, fillcolor="#F1F3F4"];
+  redis [label="Redis", shape=cylinder, fillcolor="#F1F3F4"]; mongo [label="MongoDB", shape=cylinder, fillcolor="#F1F3F4"];
+  os [label="OpenSearch", shape=cylinder, fillcolor="#F1F3F4"]; s3 [label="S3 / MinIO", shape=cylinder, fillcolor="#F1F3F4"];
+  user -> web [label="HTTPS"]; web -> gw [label="/api/*"];
+  gw -> {identity profile seller catalog search cart order review notification ai};
+  order -> catalog [label="/internal/skus"]; order -> promotion [label="/quote"]; order -> shipping [label="/quote"];
+  order -> kafka [label="outbox", style=dashed, color="#C5221F"];
+  {catalog inventory payment shipping review identity seller} -> kafka [style=dashed];
+  kafka -> {inventory payment shipping notification search cart promotion ai} [style=dashed];
+  {identity catalog order payment inventory seller shipping profile promotion} -> pg [color="#BBBBBB", arrowhead=none];
+  {cart promotion gw} -> redis [color="#BBBBBB", arrowhead=none];
+  {review notification} -> mongo [color="#BBBBBB", arrowhead=none];
+  search -> os [color="#BBBBBB", arrowhead=none]; catalog -> s3 [color="#BBBBBB", arrowhead=none];
+}

@@ -1,9 +1,9 @@
-# Chương 2 — Phân tích & thiết kế hệ thống
+# Chương 3 — Phân tích & thiết kế hệ thống
 
 Toàn bộ sơ đồ có mã nguồn PlantUML trong [diagrams/](diagrams/) (render: `diagrams/render.sh` → `diagrams/out/*.png|svg`).
-Năm sơ đồ chính được nhúng lại dưới dạng Mermaid để xem trực tiếp trên GitHub.
+Bản Mermaid đủ 30 sơ đồ (GitHub hiển thị trực tiếp): [diagrams/README.md](diagrams/README.md); ảnh PNG/SVG kiến trúc chính: [diagrams/out/](diagrams/out/). Năm sơ đồ chính được nhúng lại ngay dưới đây.
 
-## 2.1. Danh mục sơ đồ
+## 3.1. Danh mục sơ đồ
 
 | Nhóm UML / kiến trúc | File | Nội dung |
 |---|---|---|
@@ -22,7 +22,7 @@ Năm sơ đồ chính được nhúng lại dưới dạng Mermaid để xem tr�
 | Quan sát | `observability.puml` | OTel → LGTM → AIOps |
 | Kế hoạch | `gantt-plan.puml`, `mindmap-stack.puml` | Tiến độ 16 tuần, bản đồ công nghệ |
 
-## 2.2. Phong cách kiến trúc & lý do
+## 3.2. Phong cách kiến trúc & lý do
 
 | Quyết định | Lựa chọn | Phương án bị loại | Lý do |
 |---|---|---|---|
@@ -41,7 +41,7 @@ Năm sơ đồ chính được nhúng lại dưới dạng Mermaid để xem tr�
 | Quan sát | OpenTelemetry + LGTM | ELK + Prometheus tách rời (v1) | Một chuẩn cho 3 loại tín hiệu, nối được log ↔ trace |
 | AIOps | IsolationForest + robust z-score + PageRank RCA + LLM agent | LSTM/Transformer | Nhẹ, không cần GPU, giải thích được; LLM chỉ để tóm tắt và chọn runbook |
 
-## 2.3. Phân rã service & dữ liệu
+## 3.3. Phân rã service & dữ liệu
 
 | Service | Sở hữu dữ liệu | Publish | Consume |
 |---|---|---|---|
@@ -60,7 +60,7 @@ Năm sơ đồ chính được nhúng lại dưới dạng Mermaid để xem tr�
 | notification | notifications (Mongo), SSE qua Redis pub/sub | — | gần như mọi topic |
 | ai-service | products, co_purchase, user_history | — | catalog.product.v1, order.v1 |
 
-## 2.4. Sơ đồ chính (Mermaid)
+## 3.4. Sơ đồ chính (Mermaid)
 
 ### Container và luồng chính
 ```mermaid
@@ -152,7 +152,7 @@ flowchart LR
   agent --> eval[MTTD · MTTR · F1 · Top-k]
 ```
 
-## 2.5. Thiết kế thuật toán AIOps
+## 3.5. Thiết kế thuật toán AIOps
 
 **Đặc trưng** mỗi service *s*, mỗi bước 30 s: $x_s(t) = [p95, \text{error\_rate}, \text{rps}, \text{cpu}, \text{mem}, \text{dlq\_rate}]$.
 
@@ -167,7 +167,7 @@ flowchart LR
 6. **Chỉ số**: Precision, Recall, $F1 = \frac{2PR}{P+R}$ theo cửa sổ sự cố; $MTTD = t_{detect} - t_{fault}$;
    $MTTR = t_{resolve} - t_{detect}$; Top-k = tỉ lệ thí nghiệm có nhãn nguyên nhân nằm trong k vị trí đầu.
 
-## 2.6. Thiết kế bảo mật (theo OWASP ASVS / SLSA)
+## 3.6. Thiết kế bảo mật (theo OWASP ASVS / SLSA)
 
 | Lớp | Biện pháp |
 |---|---|

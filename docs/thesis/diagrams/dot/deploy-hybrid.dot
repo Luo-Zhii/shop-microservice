@@ -1,0 +1,17 @@
+digraph hybrid {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=12, label="Triển khai hybrid — GitOps hub-spoke (on-prem + AWS)", labelloc=t, compound=true, pad=0.3, ranksep=0.9];
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6"];
+  edge [fontname="DejaVu Sans", fontsize=8, color="#555555"];
+  subgraph cluster_gh { label="GitHub"; style="rounded"; color="#24292F"; fontname="DejaVu Sans";
+    app [label="shop-microservice"]; actions [label="Actions\ntest · quét · build · SBOM · cosign"]; ghcr [label="GHCR", shape=cylinder]; gitops [label="shop-gitops\nenvironments/*/images.yaml"]; iac [label="DevOps_Scripts\nTerraform · Ansible"]; }
+  subgraph cluster_onprem { label="Data center on-prem (Proxmox)"; style="rounded"; color="#137333"; fontname="DejaVu Sans";
+    vip [label="HAProxy + keepalived\nVIP"]; rke [label="RKE2 HA\n3 control-plane + 3 worker"]; argo [label="Argo CD (HUB)", fillcolor="#FCE8E6", color="#C5221F"];
+    harbor [label="Harbor", shape=cylinder]; vault [label="Vault"]; dataop [label="CNPG · Strimzi · Redis\nMongo · OpenSearch · MinIO", shape=cylinder]; }
+  subgraph cluster_aws { label="AWS ap-southeast-1 — VPC 3 AZ"; style="rounded"; color="#FF9900"; fontname="DejaVu Sans";
+    alb [label="ALB"]; eks [label="EKS\non-demand + spot"]; rds [label="RDS PostgreSQL\nMulti-AZ", shape=cylinder]; ec [label="ElastiCache", shape=cylinder];
+    ecr [label="ECR", shape=cylinder]; s3 [label="S3 + CloudFront", shape=cylinder]; sm [label="Secrets Manager + KMS"]; }
+  app -> actions -> ghcr; actions -> ecr [label="cosign copy (OIDC)"]; actions -> harbor [label="mirror"]; actions -> gitops [label="tag + digest"];
+  argo -> gitops [label="pull", style=dashed]; argo -> rke [label="sync prod-onprem"]; argo -> eks [label="sync prod-aws"];
+  vip -> rke; rke -> dataop; rke -> vault [label="ESO"]; alb -> eks; eks -> rds; eks -> ec; eks -> s3; eks -> sm [label="ESO (IRSA)"];
+  iac -> vip [lhead=cluster_onprem, style=dotted, label="terraform + ansible"]; iac -> alb [lhead=cluster_aws, style=dotted, label="terraform"];
+}

@@ -1,0 +1,12 @@
+digraph aiops {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=12, label="Vòng kín AIOps — phát hiện → chẩn đoán → phản ứng (có người duyệt)", labelloc=t, pad=0.3];
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6"];
+  edge [fontname="DejaVu Sans", fontsize=8];
+  svc [label="15 service\nOTel · /metrics · log JSON"]; chaos [label="Chaos Mesh\n(lỗi có nhãn)", fillcolor="#FCE8E6", color="#C5221F"];
+  lgtm [label="Prometheus · Loki · Tempo", shape=cylinder, fillcolor="#F1F3F4"];
+  det [label="Detector\nIsolationForest + robust z\n+ Drain3 → điểm [0..1]"]; am [label="Alertmanager"];
+  agent [label="Agent\ngom bối cảnh"]; rca [label="RCA\npersonalized PageRank"]; llm [label="LLM\ntóm tắt + runbook", fillcolor="#FEF7E0", color="#B06000"];
+  chat [label="Telegram / Slack\nDuyệt?", shape=diamond, fillcolor="#FFFFFF"]; exec [label="Executor\nrollback · scale · restart\nallowlist · audit"];
+  eval [label="Eval\nF1 · MTTD · MTTR · Top-k", shape=note, fillcolor="#E6F4EA", color="#137333"];
+  chaos -> svc; svc -> lgtm -> det -> am -> agent; agent -> rca -> llm -> chat; chat -> exec [label="duyệt"]; exec -> svc [label="khắc phục"]; agent -> eval [style=dashed]; chaos -> eval [style=dashed, label="nhãn"];
+}

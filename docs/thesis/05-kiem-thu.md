@@ -1,8 +1,8 @@
-# Chương 3 — Kế hoạch & đặc tả kiểm thử
+# Chương 5 — Kế hoạch & đặc tả kiểm thử
 
 Kết quả chạy thật được sinh tự động vào [test-report.md](test-report.md) (`node tools/test-report/run.mjs`).
 
-## 3.1. Chiến lược (kim tự tháp kiểm thử)
+## 5.1. Chiến lược (kim tự tháp kiểm thử)
 
 | Mức | Công cụ | Phạm vi | Chạy ở đâu |
 |---|---|---|---|
@@ -20,7 +20,7 @@ Kết quả chạy thật được sinh tự động vào [test-report.md](test-
 **Tiêu chí vào:** service build được, hạ tầng test sẵn sàng. **Tiêu chí ra:** 100% test tự động qua; không có lỗ hổng
 CRITICAL; e2e qua hết; không tràn ngang ở 4 cỡ màn hình; có bảng số liệu AIOps.
 
-## 3.2. Môi trường
+## 5.2. Môi trường
 
 | Môi trường | Thành phần |
 |---|---|
@@ -28,7 +28,7 @@ CRITICAL; e2e qua hết; không tràn ngang ở 4 cỡ màn hình; có bảng s�
 | CI | GitHub Actions ubuntu-latest + service container PG/Redis/Mongo |
 | Dev/Staging | Cụm kind hoặc RKE2, Argo CD, LGTM, Chaos Mesh |
 
-## 3.3. Đặc tả test case
+## 5.3. Đặc tả test case
 
 Ký hiệu: **A** = tự động, **M** = thủ công. Cột "Tự động hoá" chỉ tới file test.
 
@@ -181,7 +181,7 @@ Ký hiệu: **A** = tự động, **M** = thủ công. Cột "Tự động hoá"
 | TC-AO-06 | FR-P12 | Token duyệt sai HMAC | 403 | A |
 | TC-AO-07 | FR-P14 | Eval tổng hợp 30 kịch bản | Báo cáo P/R/F1, MTTD, Top-1/3 | A |
 
-## 3.4. Ma trận truy vết (rút gọn)
+## 5.4. Ma trận truy vết (rút gọn)
 
 | Yêu cầu | Test case |
 |---|---|

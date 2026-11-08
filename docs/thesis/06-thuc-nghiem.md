@@ -1,8 +1,8 @@
-# Chương 4 — Thực nghiệm & đánh giá
+# Chương 6 — Thực nghiệm & đánh giá
 
 Mọi số liệu dưới đây đều lấy từ lần chạy thật trên máy dev (14 GB RAM, ổ HDD gần đầy). Mỗi mục ghi rõ lệnh để tái lập.
 
-## 4.1. Môi trường
+## 6.1. Môi trường
 
 | Thành phần | Cấu hình |
 |---|---|
@@ -11,7 +11,7 @@ Mọi số liệu dưới đây đều lấy từ lần chạy thật trên máy
 | Ứng dụng | 13 service Node 22 (bundle esbuild, chạy tiến trình node), inventory Go 1.23 (image distroless 24.6 MB), ai-service Python 3.13 |
 | Kiểm thử | node:test, go test, pytest, kịch bản e2e qua gateway, k6 |
 
-## 4.2. Kiểm thử tự động (RQ1 — tính đúng)
+## 6.2. Kiểm thử tự động (RQ1 — tính đúng)
 
 Lệnh: `node tools/test-report/run.mjs` → [test-report.md](test-report.md).
 
@@ -31,15 +31,15 @@ Các kiểm thử nhất quán dưới tải đồng thời (trả lời RQ1):
 | Sự kiện Kafka giao trùng (at-least-once) | Mọi consumer chỉ xử lý 1 lần (inbox `processed_events`) |
 | Checkout gửi lại cùng Idempotency-Key | Trả cùng checkoutId, không tạo đơn / không khoá voucher lần 2 |
 
-## 4.3. End-to-end toàn sàn
+## 6.3. End-to-end toàn sàn
 
 Kịch bản e2e (`tests/e2e/run.ts`, chạy bằng `scripts/dev.sh up && pnpm e2e`) phủ toàn bộ luồng sàn qua gateway với Kafka
 thật: mở shop → duyệt → đăng sản phẩm → kho → tìm kiếm → giỏ → voucher → checkout COD (saga) → giao → hoàn tất → đánh giá
 → ví seller, cùng hai luồng bù trừ là thanh toán thất bại và đặt vượt tồn kho. **Đợt đánh giá này chưa chạy e2e** (máy dev
 không đủ tài nguyên để chạy cùng lúc 15 service và các tác vụ khác). Tính đúng của từng bước saga đã được kiểm ở mức tích
-hợp (mục 4.2: order 13 test gọi thẳng handler sự kiện và kiểm bảng outbox).
+hợp (mục 6.2: order 13 test gọi thẳng handler sự kiện và kiểm bảng outbox).
 
-## 4.4. AIOps (RQ3, RQ4, RQ5)
+## 6.4. AIOps (RQ3, RQ4, RQ5)
 
 Lệnh: `cd aiops && python -m aiops.eval.synthetic --scenarios 30` (seed 42; 30 kịch bản: 25 lỗi tiêm gồm cpu / error /
 latency / pod_kill, 5 tăng tải lành tính; 15 service × 240 bước × 30 s). Báo cáo đầy đủ:
@@ -72,7 +72,7 @@ latency / pod_kill, 5 tăng tải lành tính; 15 service × 240 bước × 30 s
 
 PageRank cá nhân hoá vượt PageRank thường rất xa (Top-1 0.92 so với 0.44). Tuy nhiên trên dữ liệu tổng hợp này nó chỉ
 **hoà** baseline "điểm lớn nhất", vì lỗi tiêm tập trung rõ ở một service. Ưu thế của nó được kỳ vọng xuất hiện khi lỗi lan
-rộng và service gốc không có điểm cao nhất; điều này cần kiểm chứng bằng chaos thật (mục 4.6).
+rộng và service gốc không có điểm cao nhất; điều này cần kiểm chứng bằng chaos thật (mục 6.6).
 
 ### Tác tử khắc phục (RQ5)
 
@@ -81,7 +81,7 @@ rộng và service gốc không có điểm cao nhất; điều này cần kiể
   phân tích (thông báo 15 s, chờ duyệt 120 s, thực thi 45–90 s, chẩn đoán tay 900 s), chưa phải số đo thật. Số đo thật lấy
   bằng `python -m aiops.eval.chaos_runner` trên cụm có Chaos Mesh.
 
-## 4.5. DevSecOps (RQ2)
+## 6.5. DevSecOps (RQ2)
 
 | Kiểm chứng | Cách đo | Kết quả |
 |---|---|---|
@@ -92,7 +92,7 @@ rộng và service gốc không có điểm cao nhất; điều này cần kiể
 | Chuỗi cung ứng | SBOM SPDX + Cosign keyless + Kyverno verifyImages | Đã cấu hình; kiểm thực tế cần cụm + Rekor |
 | DORA | `tools/dora/dora.py` | Tính từ lịch sử commit `environments/*/images.yaml` khi pipeline chạy trên GitHub |
 
-## 4.6. Việc chưa đo được trên máy dev và kế hoạch
+## 6.6. Việc chưa đo được trên máy dev và kế hoạch
 
 | Hạng mục | Lý do | Cách đo khi có cụm |
 |---|---|---|

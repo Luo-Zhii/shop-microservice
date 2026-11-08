@@ -1,0 +1,22 @@
+digraph saga {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=12, label="Saga đặt hàng (orchestration) — luồng thành công và bù trừ", labelloc=t, pad=0.3];
+  node [shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6", fontname="DejaVu Sans", fontsize=10];
+  edge [fontname="DejaVu Sans", fontsize=9];
+  start [label="POST /checkout\n(Idempotency-Key)", shape=oval, fillcolor="#FFF3E0", color="#E65100"];
+  price [label="Định giá (catalog) · phí ship (shipping)\nkhoá voucher + suất flash sale (promotion)"];
+  tx [label="1 transaction:\nđơn PENDING + outbox[order.created, inventory.reserve]"];
+  reserve [label="inventory: giữ chỗ all-or-nothing", fillcolor="#E6F4EA", color="#137333"];
+  cod [label="COD?", shape=diamond, fillcolor="#FFFFFF"];
+  await [label="AWAITING_PAYMENT\npayment.request"];
+  pay [label="Thanh toán trong 15 phút?", shape=diamond, fillcolor="#FFFFFF"];
+  confirmed [label="CONFIRMED\ninventory.commit · order.confirmed", fillcolor="#CEEAD6", color="#137333"];
+  ship [label="shipping tạo vận đơn → SHIPPING → DELIVERED"];
+  done [label="COMPLETED\nví seller ghi có (−5%) · mở đánh giá", shape=oval, fillcolor="#CEEAD6", color="#137333"];
+  oos [label="CANCELLED (OUT_OF_STOCK)\nnhả voucher", fillcolor="#FCE8E6", color="#C5221F"];
+  failed [label="CANCELLED (PAYMENT_FAILED / TIMEOUT)\ninventory.release · nhả voucher + suất", fillcolor="#FCE8E6", color="#C5221F"];
+  start -> price -> tx -> reserve;
+  reserve -> cod [label="reserved"]; reserve -> oos [label="reserve_failed", color="#C5221F"];
+  cod -> confirmed [label="có"]; cod -> await [label="không"]; await -> pay;
+  pay -> confirmed [label="succeeded"]; pay -> failed [label="failed / expired", color="#C5221F"];
+  confirmed -> ship -> done;
+}

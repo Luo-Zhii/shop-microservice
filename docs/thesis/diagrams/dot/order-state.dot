@@ -1,0 +1,13 @@
+digraph order_state {
+  graph [rankdir=LR, fontname="DejaVu Sans", fontsize=12, label="Máy trạng thái đơn hàng", labelloc=t, pad=0.3, nodesep=0.5];
+  node [fontname="DejaVu Sans", fontsize=10, shape=box, style="rounded,filled", fillcolor="#E8F0FE", color="#3367D6"];
+  edge [fontname="DejaVu Sans", fontsize=8];
+  s [shape=circle, label="", width=0.2, fillcolor="#000000"];
+  CANCELLED [fillcolor="#FCE8E6", color="#C5221F"]; COMPLETED [fillcolor="#CEEAD6", color="#137333"]; RETURNED [fillcolor="#FEF7E0", color="#B06000"];
+  s -> PENDING [label="checkout"];
+  PENDING -> AWAITING_PAYMENT [label="reserved [online]"]; PENDING -> CONFIRMED [label="reserved [COD]"]; PENDING -> CANCELLED [label="reserve_failed / huỷ"];
+  AWAITING_PAYMENT -> CONFIRMED [label="payment.succeeded"]; AWAITING_PAYMENT -> CANCELLED [label="failed / expired / 15'"];
+  CONFIRMED -> CANCELLED [label="huỷ: refund + restock"]; CONFIRMED -> SHIPPING [label="picked"];
+  SHIPPING -> DELIVERED [label="delivered"]; DELIVERED -> COMPLETED [label="đã nhận / 3 ngày"];
+  DELIVERED -> RETURN_REQUESTED [label="≤ 7 ngày"]; RETURN_REQUESTED -> RETURNED [label="duyệt: refund + restock"]; RETURN_REQUESTED -> DELIVERED [label="từ chối"];
+}
