@@ -46,3 +46,7 @@ __pycache__/
 .next/
 next-env.d.ts
 *.tsbuildinfo
+
+# dev runtime
+.dev/
+.dev-*.log

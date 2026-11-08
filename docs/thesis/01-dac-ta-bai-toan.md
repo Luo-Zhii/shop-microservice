@@ -154,7 +154,7 @@ Hệ thống xuất phát (v1 — repo `DevOps_Scripts`, `shop-gitops`, `shop-ap
 | NFR-06 | Quan sát | 100% service có /healthz /readyz /metrics, trace xuyên Kafka (traceparent trong sự kiện), log JSON có trace_id |
 | NFR-07 | Khả chuyển | Cùng chart/manifest chạy trên RKE2 on-prem và EKS; chỉ khác file values theo môi trường |
 | NFR-08 | Phục hồi | RPO ≤ 5 phút (WAL backup CNPG / RDS PITR), RTO ≤ 30 phút (dựng lại từ IaC + GitOps) |
-| NFR-09 | Chi phí | Môi trường AWS dev < 150 USD/tháng khi bật; có `terraform destroy` |
+| NFR-09 | Chi phí | AWS dev ≈ 0,42 USD/giờ khi bật (≈ 7 USD cho 16 giờ demo; ≈ 300 USD nếu chạy 24/7), có `scripts/destroy-aws.sh`; prod ước 1.400–1.600 USD/tháng |
 | NFR-10 | Tiện dụng | Giao diện tiếng Việt, mobile-first (320 px trở lên), không tràn ngang |
 | NFR-11 | Bảo trì | Thư viện nền dùng chung, hợp đồng sự kiện có version (`*.v1`), ADR cho quyết định lớn |
 
