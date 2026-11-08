@@ -10,8 +10,9 @@ pg.types.setTypeParser(1700, (v) => Number.parseFloat(v));
 export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
 
-export function createPool(url: string, max = 10) {
-  return new pg.Pool({ connectionString: url, max, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 5_000 });
+/** max / timeout chờ kết nối đọc từ env PG_POOL_MAX, PG_CONNECT_TIMEOUT_MS (chờ quá lâu → 500, tránh dồn hàng vô hạn). */
+export function createPool(url: string, max = Number(process.env.PG_POOL_MAX ?? 10), connectionTimeoutMillis = Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 5_000)) {
+  return new pg.Pool({ connectionString: url, max, idleTimeoutMillis: 30_000, connectionTimeoutMillis });
 }
 
 export async function withTx<T>(pool: pg.Pool, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {

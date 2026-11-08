@@ -25,7 +25,7 @@ export const histogram = (name: string, help: string, labelNames: string[] = [],
 
 export const httpDuration = () =>
   histogram('http_server_requests_seconds', 'Thời gian xử lý HTTP (RED)', ['method', 'route', 'status'], [
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.8, 1, 1.5, 2.5, 5, 10,
   ]);
 export const kafkaConsumed = () =>
   counter('kafka_messages_consumed_total', 'Số message Kafka đã xử lý', ['topic', 'type', 'result']);

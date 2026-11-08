@@ -173,7 +173,7 @@ export function startOutboxRelay(pool: Pool, bus: EventBus, log: Logger, interva
       try {
         await c.query('BEGIN');
         const { rows } = await c.query(
-          'SELECT id, topic, payload FROM outbox ORDER BY created_at LIMIT 200 FOR UPDATE SKIP LOCKED',
+          'SELECT id, topic, payload FROM outbox ORDER BY created_at, id LIMIT 200 FOR UPDATE SKIP LOCKED',
         );
         if (rows.length) {
           const byTopic = new Map<string, EventEnvelope<any>[]>();
