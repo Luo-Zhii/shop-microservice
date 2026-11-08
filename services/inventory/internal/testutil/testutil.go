@@ -51,7 +51,12 @@ func create(base, suffix string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	name := strings.TrimPrefix(u.Path, "/") + suffix
+	dbName := strings.TrimPrefix(u.Path, "/")
+	if dbName == "" || dbName == "postgres" {
+		// URL trỏ database quản trị (cách CI và tools/test-report truyền) → dùng tên test riêng, không bao giờ xoá "postgres".
+		dbName = "inventory_test"
+	}
+	name := dbName + suffix
 	admin := *u
 	admin.Path = "/postgres"
 	conn, err := pgx.Connect(ctx, admin.String())
