@@ -1,0 +1,25 @@
+@startuml network-security
+title Sơ đồ vùng mạng & bảo mật (zero-trust, defense in depth)
+rectangle "Internet" as inet
+rectangle "Edge: WAF / CloudFront · TLS (cert-manager)" as edge
+rectangle "Ingress controller" as ing
+rectangle "namespace shopnow — NetworkPolicy default-deny" as ns {
+  rectangle "api-gateway\n(JWT, rate limit)" as gw
+  rectangle "service tier\n(mỗi service tự verify JWT,\n/internal cần x-internal-token)" as svc
+  rectangle "data tier\n(chỉ service sở hữu được kết nối)" as data
+}
+rectangle "namespace observability" as obs
+rectangle "namespace aiops\n(RBAC tối thiểu: patch rollout/deployment\ntrong allowlist)" as aiops
+rectangle "Kyverno admission\n(chỉ image Cosign đúng repo, non-root,\nkhông :latest, có limits + probes)" as ky
+rectangle "Secrets: Vault / AWS SM → External Secrets\n(không secret trong git)" as sec
+inet --> edge
+edge --> ing
+ing --> gw : chỉ cho phép từ ingress
+gw --> svc : allow theo label
+svc --> data : allow theo cặp service–DB
+svc --> obs : OTLP 4318
+obs --> aiops : webhook Alertmanager
+aiops --> svc : rollback / scale (có duyệt)
+ky ..> ns : chặn ở admission
+sec ..> svc : mount env
+@enduml

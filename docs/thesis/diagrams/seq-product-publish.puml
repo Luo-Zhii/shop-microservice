@@ -1,0 +1,39 @@
+@startuml seq-product-publish
+title Sơ đồ tuần tự — Mở shop, đăng sản phẩm, lan truyền sự kiện (event-carried state transfer)
+autonumber
+actor Seller as S
+actor Admin as A
+participant seller as SE
+participant identity as ID
+participant catalog as C
+participant "S3 / MinIO" as S3
+queue Kafka as K
+participant search as SR
+participant "inventory (Go)" as I
+participant "ai-service" as AI
+
+S -> SE : POST /shops (KYC mã hoá AES-GCM)
+SE -> K : shop.submitted
+A -> SE : POST /admin/shops/:id/approve
+SE -> K : shop.approved
+K -> ID : thêm role seller + shopId → user.role_granted
+K -> C : shops_cache (tên, trạng thái)
+S -> ID : POST /auth/refresh → token có shopId
+S -> C : POST /seller/uploads {image/jpeg}
+C --> S : presigned PUT URL (10')
+S -> S3 : PUT ảnh (không đi qua service)
+S -> AI : POST /generate/description (tuỳ chọn)
+S -> C : POST /seller/products (biến thể M/L)
+C -> K : product.upserted (DRAFT)
+S -> C : POST /seller/products/:id/submit → PENDING
+A -> C : POST /admin/products/:id/approve
+C -> K : product.upserted (APPROVED)
+par
+  K -> SR : index (bỏ dấu, trigram) — chỉ APPROVED
+  K -> I : đăng ký SKU (shop_id) + stock 0
+  K -> AI : cập nhật TF-IDF gợi ý
+end
+S -> I : PUT /seller/stock/:sku {onHand} (SKU thuộc shop trong token)
+I -> K : stock.changed
+K -> SR : inStock = true
+@enduml

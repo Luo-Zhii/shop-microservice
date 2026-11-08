@@ -1,0 +1,45 @@
+@startuml seq-checkout-cod
+title Sơ đồ tuần tự — Checkout COD (saga orchestration + outbox/inbox)
+autonumber
+actor "Người mua" as B
+participant "web" as W
+participant "api-gateway" as G
+participant "order" as O
+participant "catalog" as C
+participant "shipping" as S
+participant "promotion" as P
+database "orders DB\n(+outbox)" as ODB
+queue Kafka as K
+participant "inventory (Go)" as I
+participant "cart" as CA
+participant "notification" as N
+
+B -> W : Đặt hàng (COD, 2 voucher)
+W -> G : POST /api/order/checkout\nIdempotency-Key
+G -> G : verify JWT (JWKS), rate limit
+G -> O : POST /checkout
+O -> ODB : tìm idempotency key (đã có → trả kết quả cũ)
+O -> C : POST /internal/skus (giá thật)
+O -> S : POST /quote (mỗi shop)
+O -> P : POST /quote commit=true\n(khoá voucher, giữ suất flash sale)
+O -> ODB : BEGIN; INSERT checkout, orders×N, items,\nhistory, outbox[order.created×N, inventory.reserve]; COMMIT
+O --> G : 201 {checkoutId, PENDING}
+G --> W : 201
+W -> G : poll GET /checkouts/:id
+... outbox relay (≤250 ms) ...
+ODB -> K : order.created, inventory.reserve
+K -> CA : order.created → xoá món đã đặt
+K -> N : order.created → "Đặt hàng thành công"
+K -> I : inventory.reserve
+I -> I : BEGIN; khoá SKU theo thứ tự;\nUPDATE stock SET reserved+=q\nWHERE on_hand-reserved>=q (tất cả hoặc không)
+I -> K : inventory.reserved (outbox)
+K -> O : inventory.reserved
+O -> ODB : processOnce: orders → CONFIRMED,\noutbox[inventory.commit, order.confirmed]
+ODB -> K : inventory.commit, order.confirmed
+K -> I : commit: on_hand-=q, reserved-=q
+K -> S : order.confirmed → tạo vận đơn
+K -> P : order.confirmed → redemption USED
+W -> G : poll
+G -> O : GET /checkouts/:id
+O --> W : CONFIRMED
+@enduml

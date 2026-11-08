@@ -1,0 +1,37 @@
+@startuml seq-aiops-incident
+title Sơ đồ tuần tự — Tác tử AIOps xử lý sự cố (human-in-the-loop)
+autonumber
+participant "Chaos Mesh\n(hoặc lỗi thật)" as CH
+participant "payment" as PAY
+participant "Prometheus/Loki/Tempo" as OBS
+participant "aiops detector" as DET
+participant "Alertmanager" as AM
+participant "aiops agent" as AG
+participant "Kubernetes API\n(Argo Rollouts)" as K8S
+participant "LLM\n(Ollama / Bedrock)" as LLM
+participant "Telegram / Slack" as CHAT
+actor SRE
+
+CH -> PAY : network delay 800ms (fault_start)
+PAY -> OBS : p95↑, lỗi timeout↑, trace dài
+loop mỗi 30 s
+  DET -> OBS : query_range (RED, CPU, DLQ) + log
+  DET -> DET : IsolationForest + robust z-score + Drain3
+end
+DET -> AM : POST /api/v2/alerts {service=payment, source=aiops}
+AM -> AG : webhook (critical) — detected_at
+AG -> OBS : snapshot metric, top log lỗi, service graph
+AG -> K8S : rollout/deployment thay đổi trong 30'?
+AG -> AG : RCA: personalized PageRank\n→ [payment 0.61, order 0.22, gateway 0.09]
+AG -> LLM : bối cảnh + runbook → tóm tắt + đề xuất
+LLM --> AG : "payment chậm do … — đề xuất rollback rev 41"
+AG -> CHAT : báo sự cố + nút Duyệt / Từ chối (token HMAC)
+SRE -> CHAT : Duyệt
+CHAT -> AG : POST /actions/{id}/approve — acknowledged_at
+AG -> AG : kiểm allowlist namespace + loại hành động, DRY_RUN?
+AG -> K8S : rollout undo / scale +1 / restart
+K8S --> AG : OK — mitigated_at
+DET -> OBS : chỉ số về bình thường
+AG -> AG : resolved_at → MTTD, MTTR, audit log
+AG -> CHAT : "Đã khắc phục, MTTR 3m12s"
+@enduml

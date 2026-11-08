@@ -1,0 +1,65 @@
+@startuml kafka-topology
+title Topo sự kiện Kafka (producer → topic → consumer group)
+left to right direction
+rectangle identity
+rectangle seller
+rectangle catalog
+rectangle order
+rectangle inventory
+rectangle payment
+rectangle shipping
+rectangle review
+queue "identity.user.v1" as t1
+queue "seller.shop.v1" as t2
+queue "catalog.product.v1" as t3
+queue "inventory.command.v1" as t4
+queue "inventory.event.v1" as t5
+queue "payment.command.v1" as t6
+queue "payment.event.v1" as t7
+queue "order.v1" as t8
+queue "shipping.v1" as t9
+queue "review.v1" as t10
+rectangle "user-profile" as up
+rectangle notification as nt
+rectangle search as sr
+rectangle cart as ct
+rectangle promotion as pm
+rectangle "ai-service" as ai
+identity --> t1
+seller --> t2
+catalog --> t3
+order --> t4
+inventory --> t5
+order --> t6
+payment --> t7
+order --> t8
+shipping --> t9
+review --> t10
+t1 --> up
+t1 --> nt
+t2 --> identity
+t2 --> catalog
+t2 --> nt
+t3 --> sr
+t3 --> inventory
+t3 --> ai
+t4 --> inventory
+t5 --> order
+t5 --> sr
+t6 --> payment
+t7 --> order
+t7 --> nt
+t8 --> ct
+t8 --> pm
+t8 --> shipping
+t8 --> payment
+t8 --> review
+t8 --> nt
+t8 --> catalog
+t8 --> ai
+t9 --> order
+t9 --> nt
+t10 --> catalog
+t10 --> nt
+note bottom of t8 : mỗi topic có <topic>.dlq; key = subject → thứ tự theo thực thể;\nphong bì có traceparent → trace xuyên Kafka
+@enduml

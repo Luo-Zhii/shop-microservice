@@ -1,0 +1,109 @@
+@startuml class-domain
+title Biểu đồ lớp — Mô hình miền (domain model) ShopNow v2
+skinparam classAttributeIconSize 0
+hide empty methods
+package "identity" #EEF {
+  class User {
+    id: UUID
+    email: string
+    passwordHash: argon2id
+    roles: Role[*]
+    emailVerified: bool
+    totpSecret?: string
+    failedLogins: int
+    lockedUntil?: datetime
+  }
+  class RefreshToken {
+    tokenHash: sha256
+    familyId: UUID
+    revokedAt?: datetime
+    expiresAt: datetime
+  }
+  class OtpCode { purpose: verify_email|reset_password\n codeHash; attempts; expiresAt }
+  enum Role { buyer\n seller\n admin }
+}
+package "user-profile" #EFE {
+  class Profile { fullName; phone; avatarUrl; birthday }
+  class Address { fullName; phone; line1; ward; district; province; isDefault }
+}
+package "seller" #FEE {
+  class Shop {
+    id; ownerId; name; slug
+    status: ShopStatus
+    pickupAddress: Address
+    kyc: KYC «AES-256-GCM»
+    followerCount
+  }
+  enum ShopStatus { PENDING\n APPROVED\n REJECTED\n SUSPENDED }
+}
+package "catalog" #FFE {
+  class Category { id; parentId?; name; slug; sort }
+  class Product {
+    id; shopId; title; slug; description
+    status: ProductStatus
+    minPrice; maxPrice
+    ratingAvg; ratingCount; soldCount
+  }
+  class Variant { id «skuId»; sku; options: Map; price; compareAtPrice?; weightGrams; status }
+}
+package "inventory (Go)" #EFF {
+  class Stock { skuId; onHand; reserved\n available() = onHand − reserved }
+  class Reservation { reservationId «= checkoutId»; status: RESERVED|COMMITTED|RELEASED|EXPIRED; expiresAt }
+  class ReservationItem { skuId; qty }
+}
+package "promotion" #FEF {
+  class Voucher { code; scope: PLATFORM|SHOP; type: PERCENT|FIXED|FREESHIP; value; maxDiscount; minOrder; usageLimit; perUserLimit; startsAt; endsAt }
+  class Redemption { checkoutId; userId; shopId?; status: LOCKED|USED|RELEASED }
+  class FlashSaleItem { skuId; salePrice; quota; perUserLimit «Redis Lua» }
+}
+package "order" #DDF {
+  class Checkout { id; buyerId; status; paymentMethod; idempotencyKey; redirectUrl? }
+  class Order {
+    id; checkoutId; buyerId; shopId
+    status: OrderStatus
+    subtotal; shippingFee; discount; total
+    shippingAddress: Address
+    + cancel(reason)
+    + confirmReceived()
+    + requestReturn(reason)
+  }
+  class OrderItem { skuId; productId; title; variantLabel; unitPrice; qty; lineTotal }
+  class StatusHistory { from; to; reason; at }
+}
+package "payment" #DFD {
+  class Payment { id; checkoutId; method: COD|MOCK|VNPAY; amount; status; providerRef }
+  class Refund { orderId; amount; status }
+  class LedgerEntry { shopId; orderId; amount; commission; type: CREDIT|PAYOUT }
+  class Payout { shopId; amount; status: REQUESTED|PAID }
+}
+package "shipping" #FDD {
+  class Shipment { id; orderId; carrier; trackingCode; fee; status: ShipmentStatus }
+  class ShipmentEvent { status; at; note }
+}
+package "review (Mongo)" #DFF {
+  class Review { orderId; productId; userId; rating 1..5; content; images; status; sellerReply? }
+}
+User "1" -- "0..*" RefreshToken
+User "1" -- "0..*" OtpCode
+User "1" -- "1" Profile
+Profile "1" *-- "0..10" Address
+User "1" -- "0..1" Shop : sở hữu >
+Category "0..1" -- "0..*" Category : cha >
+Category "1" -- "0..*" Product
+Shop "1" -- "0..*" Product
+Product "1" *-- "1..100" Variant
+Variant "1" -- "1" Stock : skuId
+Reservation "1" *-- "1..*" ReservationItem
+Checkout "1" *-- "1..*" Order : tách theo shop
+Order "1" *-- "1..*" OrderItem
+Order "1" *-- "1..*" StatusHistory
+Checkout "1" -- "1" Payment
+Payment "1" -- "0..*" Refund
+Order "1" -- "0..1" Shipment
+Shipment "1" *-- "1..*" ShipmentEvent
+Order "1" -- "0..*" Review
+Voucher "1" -- "0..*" Redemption
+Checkout ..> Reservation : reservationId
+Order ..> LedgerEntry : hoàn tất → ghi có
+note bottom of Order : Mỗi service sở hữu dữ liệu của mình;\nliên kết giữa package chỉ qua ID + sự kiện Kafka\n(không có khoá ngoại xuyên database).
+@enduml

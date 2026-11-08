@@ -1,0 +1,22 @@
+@startuml state-order
+title Biểu đồ trạng thái — Đơn hàng (Order)
+[*] --> PENDING : POST /checkout\n(order.created, inventory.reserve)
+PENDING --> AWAITING_PAYMENT : inventory.reserved\n[MOCK|VNPAY] / payment.request
+PENDING --> CONFIRMED : inventory.reserved [COD]\n/ inventory.commit, order.confirmed
+PENDING --> CANCELLED : inventory.reserve_failed\n(OUT_OF_STOCK)
+AWAITING_PAYMENT --> CONFIRMED : payment.succeeded\n/ inventory.commit
+AWAITING_PAYMENT --> CANCELLED : payment.failed | inventory.expired\n| quá 15' (PAYMENT_TIMEOUT)\n/ inventory.release
+PENDING --> CANCELLED : người mua huỷ
+AWAITING_PAYMENT --> CANCELLED : người mua huỷ
+CONFIRMED --> CANCELLED : người mua huỷ\n/ payment.refund nếu đã trả
+CONFIRMED --> SHIPPING : shipment.picked / in_transit\n(order.shipped)
+SHIPPING --> DELIVERED : shipment.delivered\n(order.delivered)
+DELIVERED --> COMPLETED : "Đã nhận" | sau 3 ngày\n(order.completed → ví seller, review)
+DELIVERED --> RETURN_REQUESTED : trả hàng ≤ 7 ngày
+RETURN_REQUESTED --> RETURNED : seller/admin duyệt\n/ payment.refund
+RETURN_REQUESTED --> DELIVERED : từ chối
+CANCELLED --> [*]
+COMPLETED --> [*]
+RETURNED --> [*]
+note right of CANCELLED : promotion nhả voucher shop + suất flash sale;\nvoucher sàn chỉ nhả khi lỗi toàn checkout
+@enduml

@@ -1,0 +1,43 @@
+@startuml c4-3-component-order
+!include <C4/C4_Component>
+title C4 mức 3 — Thành phần bên trong order-service
+
+Container(gw, "api-gateway", "Fastify")
+ContainerQueue(kafka, "Kafka")
+ContainerDb(db, "PostgreSQL orders")
+Container(catalog, "catalog")
+Container(promo, "promotion")
+Container(ship, "shipping")
+Container(profile, "user-profile")
+Container(seller, "seller")
+
+Container_Boundary(o, "order-service") {
+  Component(routes, "HTTP routes", "Fastify + zod", "checkout, orders, seller/admin, return")
+  Component(auth, "Auth guard", "jose JWKS", "requireRole, zero-trust")
+  Component(checkout, "Checkout use case", "TS", "Định giá, tách đơn theo shop, idempotency")
+  Component(saga, "Saga orchestrator", "TS", "Máy trạng thái, xử lý sự kiện kho/thanh toán/vận chuyển")
+  Component(sweeper, "Sweeper", "setInterval + SKIP LOCKED", "Quá hạn thanh toán, tự hoàn tất")
+  Component(clients, "Service clients", "fetch + timeout + retry + circuit breaker")
+  Component(repo, "Repository", "pg", "orders, checkouts, history, idempotency")
+  Component(outbox, "Outbox relay", "platform", "Đẩy sự kiện từ bảng outbox lên Kafka")
+  Component(consumer, "Kafka consumer", "platform EventBus", "Inbox processed_events, retry, DLQ")
+  Component(metrics, "Telemetry", "prom-client + OTel", "RED, saga duration")
+}
+Rel(gw, routes, "HTTP")
+Rel(routes, auth, "")
+Rel(routes, checkout, "")
+Rel(checkout, clients, "")
+Rel(clients, catalog, "/internal/skus")
+Rel(clients, promo, "/quote commit")
+Rel(clients, ship, "/quote")
+Rel(clients, profile, "/internal/addresses")
+Rel(clients, seller, "/internal/shops")
+Rel(checkout, repo, "1 transaction: đơn + outbox")
+Rel(consumer, saga, "inventory/payment/shipping events")
+Rel(saga, repo, "SELECT … FOR UPDATE")
+Rel(sweeper, saga, "timeout / auto-complete")
+Rel(repo, db, "SQL")
+Rel(outbox, db, "FOR UPDATE SKIP LOCKED")
+Rel(outbox, kafka, "produce (idempotent)")
+Rel(kafka, consumer, "consume")
+@enduml

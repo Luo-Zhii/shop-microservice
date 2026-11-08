@@ -1,0 +1,34 @@
+@startuml c4-1-context
+!include <C4/C4_Context>
+LAYOUT_WITH_LEGEND()
+title C4 mức 1 — Ngữ cảnh hệ thống ShopNow v2
+
+Person(buyer, "Người mua", "Tìm, mua, thanh toán, đánh giá")
+Person(seller, "Người bán", "Quản lý shop, sản phẩm, đơn, ví")
+Person(admin, "Quản trị sàn", "Duyệt, khuyến mãi, xử lý khiếu nại")
+Person(sre, "Kỹ sư DevOps / SRE", "Phát triển, release, duyệt khắc phục sự cố")
+
+System(shopnow, "ShopNow v2", "Sàn TMĐT nhiều người bán — 15 microservice + web")
+System(platform, "Nền tảng DevSecOps + AIOps", "CI/CD, GitOps đa cụm, quan sát, tác tử sự cố")
+
+System_Ext(vnpay, "VNPay", "Cổng thanh toán (sandbox)")
+System_Ext(carrier, "Hãng vận chuyển", "GHN / GHTK / SPX (giả lập)")
+System_Ext(smtp, "SMTP", "Email OTP, đơn hàng")
+System_Ext(llm, "Nhà cung cấp LLM", "Ollama (on-prem) · Amazon Bedrock · Anthropic")
+System_Ext(github, "GitHub", "Mã nguồn, Actions, GHCR, OIDC")
+System_Ext(chat, "Telegram / Slack", "Kênh cảnh báo + duyệt hành động")
+
+Rel(buyer, shopnow, "Mua sắm", "HTTPS")
+Rel(seller, shopnow, "Bán hàng", "HTTPS")
+Rel(admin, shopnow, "Quản trị", "HTTPS")
+Rel(shopnow, vnpay, "Tạo/verify giao dịch", "HTTPS HMAC-SHA512")
+Rel(shopnow, carrier, "Tạo vận đơn, webhook trạng thái", "HTTPS HMAC")
+Rel(shopnow, smtp, "Gửi email", "SMTP")
+Rel(shopnow, llm, "Chatbot, mô tả, kiểm duyệt", "HTTPS")
+Rel(sre, github, "Push code, duyệt PR release")
+Rel(github, platform, "Build → quét → ký → cập nhật GitOps")
+Rel(platform, shopnow, "Triển khai, quan sát, tự khắc phục")
+Rel(platform, chat, "Báo sự cố, nhận duyệt")
+Rel(platform, llm, "Tóm tắt sự cố, phân tích log CI")
+Rel(sre, chat, "Duyệt / từ chối hành động")
+@enduml

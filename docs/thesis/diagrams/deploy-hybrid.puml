@@ -1,0 +1,57 @@
+@startuml deploy-hybrid
+title Sơ đồ triển khai — Hybrid on-prem + AWS (GitOps hub-spoke)
+node "GitHub" as gh {
+  artifact "shop-microservice" as r1
+  artifact "shop-gitops" as r2
+  artifact "DevOps_Scripts" as r3
+  component "Actions runners" as ghr
+  database "GHCR" as ghcr
+}
+cloud "AWS ap-southeast-1" as aws {
+  node "VPC 10.20.0.0/16 (3 AZ)" {
+    node "EKS (managed node group + spot)" as eks {
+      component "shopnow (15 service + web)" as appA
+      component "Argo Rollouts · KEDA · Kyverno · ESO" as addA
+      component "OTel · Prometheus · Loki · Tempo" as obsA
+      component "Strimzi Kafka" as kA
+    }
+    database "RDS PostgreSQL 16\nMulti-AZ" as rds
+    database "ElastiCache Redis" as ec
+    database "ECR" as ecr
+    storage "S3 + CloudFront (ảnh)" as s3
+    component "Secrets Manager + KMS" as sm
+    component "ALB" as alb
+  }
+}
+node "Data center on-prem (Proxmox)" as dc {
+  node "HAProxy + keepalived (VIP)" as lb
+  node "RKE2 HA: 3 control-plane + 3 worker" as rke {
+    component "Argo CD (HUB)" as argo
+    component "shopnow (15 service + web)" as appB
+    component "CNPG Postgres · Strimzi Kafka · Redis · Mongo · OpenSearch · MinIO" as dataB
+    component "Longhorn · MetalLB · Vault · Kyverno · ESO" as addB
+    component "LGTM + aiops + Ollama" as obsB
+  }
+  node "tools VM" {
+    database "Harbor" as harbor
+    component "GitHub self-hosted runner" as shr
+  }
+}
+r1 --> ghr : push
+ghr --> ghcr : image ký Cosign
+ghr --> ecr : cosign copy (OIDC)
+ghr --> harbor : mirror
+ghr --> r2 : cập nhật images.yaml
+argo --> r2 : pull (Git là nguồn sự thật)
+argo --> rke : sync prod-onprem
+argo --> eks : sync prod-aws (cluster secret, label provider=aws)
+lb --> rke
+alb --> appA
+appA --> rds
+appA --> ec
+appA --> s3
+addA --> sm
+addB --> appB
+r3 ..> aws : terraform apply
+r3 ..> dc : terraform (bpg/proxmox) + ansible
+@enduml

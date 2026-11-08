@@ -1,0 +1,60 @@
+@startuml activity-checkout
+title Biểu đồ hoạt động — Quy trình đặt hàng (nhiều shop)
+|Người mua|
+start
+:Chọn món trong giỏ (có thể nhiều shop);
+:Chọn địa chỉ, voucher, phương thức thanh toán;
+:Bấm "Đặt hàng" (Idempotency-Key);
+|order|
+if (Key đã dùng?) then (có)
+  :Trả lại checkout cũ;
+  stop
+endif
+:Lấy giá thật từ catalog;
+if (Có SKU không bán được?) then (có)
+  :400 — báo món cần bỏ;
+  stop
+endif
+fork
+  :Tính phí ship từng shop (shipping);
+fork again
+  :Báo giá + khoá voucher / suất flash sale (promotion);
+end fork
+if (Voucher không hợp lệ?) then (có)
+  :400 — lý do cụ thể;
+  stop
+endif
+:Tách đơn theo shop, tính tổng;
+:Lưu đơn + outbox trong 1 transaction;
+|inventory|
+:Giữ chỗ tất cả SKU (all-or-nothing);
+if (Đủ hàng?) then (không)
+  |order|
+  :Huỷ (OUT_OF_STOCK), nhả voucher;
+  stop
+endif
+|order|
+if (COD?) then (có)
+  :CONFIRMED, trừ kho;
+else (online)
+  :AWAITING_PAYMENT;
+  |payment|
+  :Tạo URL thanh toán;
+  |Người mua|
+  :Thanh toán ở cổng;
+  |payment|
+  if (Thành công trong 15'?) then (có)
+    |order|
+    :CONFIRMED, trừ kho;
+  else (không)
+    |order|
+    :CANCELLED, nhả kho + voucher;
+    stop
+  endif
+endif
+|shipping|
+:Tạo vận đơn;
+|Người mua|
+:Nhận thông báo + theo dõi đơn;
+stop
+@enduml

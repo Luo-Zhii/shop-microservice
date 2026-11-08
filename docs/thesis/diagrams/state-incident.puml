@@ -1,0 +1,15 @@
+@startuml state-incident
+title Biểu đồ trạng thái — Sự cố AIOps (incident)
+[*] --> OPEN : alert (detected_at)
+OPEN --> DIAGNOSED : RCA + LLM tóm tắt
+DIAGNOSED --> AWAITING_APPROVAL : có hành động đề xuất
+DIAGNOSED --> MANUAL : không có hành động an toàn
+AWAITING_APPROVAL --> EXECUTING : SRE duyệt (acknowledged_at)
+AWAITING_APPROVAL --> MANUAL : từ chối / hết hạn
+EXECUTING --> MITIGATED : thực thi OK (mitigated_at)
+EXECUTING --> MANUAL : lỗi thực thi
+MITIGATED --> RESOLVED : chỉ số bình thường (resolved_at)
+MANUAL --> RESOLVED : xử lý tay xong
+RESOLVED --> [*]
+note right of RESOLVED : MTTD = detected_at − fault_start\nMTTR = resolved_at − detected_at
+@enduml

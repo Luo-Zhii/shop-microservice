@@ -1,0 +1,21 @@
+@startuml seq-canary
+title Sơ đồ tuần tự — Canary bằng Argo Rollouts + AnalysisTemplate
+autonumber
+participant "Argo CD" as A
+participant "Argo Rollouts" as R
+participant "ingress / Service" as SVC
+participant "Prometheus" as P
+A -> R : image order:v2 (từ images.yaml)
+R -> SVC : 10% traffic → v2
+R -> R : pause 2'
+loop mỗi bước 10% → 30% → 60%
+  R -> P : AnalysisRun: error_rate(v2) < 2% ?\np95(v2) < 800ms ?
+  alt đạt
+    R -> SVC : tăng traffic
+  else không đạt (2 lần liên tiếp)
+    R -> SVC : abort → 100% về v1
+    R -> A : Degraded (alert → aiops)
+  end
+end
+R -> SVC : 100% v2, scale down v1
+@enduml

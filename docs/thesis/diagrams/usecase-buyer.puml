@@ -1,0 +1,58 @@
+@startuml usecase-buyer
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+title Biểu đồ use case — Người mua
+actor "Khách vãng lai" as Guest
+actor "Người mua" as Buyer
+actor "VNPay" as VNPay <<external>>
+actor "Hãng vận chuyển" as Carrier <<external>>
+Guest <|-- Buyer
+rectangle "ShopNow — Phân hệ người mua" {
+  usecase "Đăng ký + xác thực OTP" as UC1
+  usecase "Đăng nhập (2FA, Google)" as UC2
+  usecase "Quên / đặt lại mật khẩu" as UC3
+  usecase "Tìm kiếm sản phẩm" as UC4
+  usecase "Lọc, sắp xếp, gợi ý" as UC4a
+  usecase "Xem chi tiết sản phẩm" as UC5
+  usecase "Quản lý giỏ hàng" as UC6
+  usecase "Gộp giỏ khách" as UC6a
+  usecase "Đặt hàng (checkout)" as UC7
+  usecase "Áp voucher / flash sale" as UC7a
+  usecase "Chọn địa chỉ giao" as UC7b
+  usecase "Thanh toán online" as UC8
+  usecase "Theo dõi đơn & vận đơn" as UC9
+  usecase "Huỷ đơn" as UC10
+  usecase "Xác nhận đã nhận" as UC11
+  usecase "Yêu cầu trả hàng" as UC12
+  usecase "Đánh giá sản phẩm" as UC13
+  usecase "Quản lý hồ sơ, địa chỉ" as UC14
+  usecase "Wishlist, theo dõi shop" as UC15
+  usecase "Nhận thông báo" as UC16
+  usecase "Hỏi chatbot CSKH" as UC17
+}
+Guest --> UC1
+Guest --> UC4
+Guest --> UC5
+Guest --> UC6
+Guest --> UC17
+Buyer --> UC2
+Buyer --> UC3
+Buyer --> UC7
+Buyer --> UC9
+Buyer --> UC10
+Buyer --> UC11
+Buyer --> UC12
+Buyer --> UC13
+Buyer --> UC14
+Buyer --> UC15
+Buyer --> UC16
+UC4 <.. UC4a : <<extend>>
+UC6 <.. UC6a : <<extend>>
+UC7 ..> UC7b : <<include>>
+UC7 <.. UC7a : <<extend>>
+UC7 <.. UC8 : <<extend>>\n(method ≠ COD)
+UC8 -- VNPay
+UC9 -- Carrier
+UC13 ..> UC11 : <<include>>\n(đã nhận hàng)
+@enduml

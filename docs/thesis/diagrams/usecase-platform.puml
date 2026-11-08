@@ -1,0 +1,51 @@
+@startuml usecase-platform
+left to right direction
+skinparam actorStyle awesome
+title Biểu đồ use case — Nền tảng DevSecOps + AIOps
+actor "Kỹ sư DevOps / SRE" as SRE
+actor "Người duyệt release" as Approver
+actor "GitHub Actions" as CI <<system>>
+actor "Argo CD" as CD <<system>>
+actor "Tác tử AIOps" as Agent <<system>>
+actor "LLM" as LLM <<external>>
+SRE <|-- Approver
+rectangle "Nền tảng" {
+  usecase "Dựng hạ tầng bằng IaC\n(Terraform / Ansible)" as P1
+  usecase "Push code / mở PR" as P2
+  usecase "Chạy test + quét bảo mật" as P3
+  usecase "Build, SBOM, ký image" as P4
+  usecase "Cập nhật repo GitOps" as P5
+  usecase "Đồng bộ đa cụm\n(on-prem + EKS)" as P6
+  usecase "Canary + tự rollback" as P7
+  usecase "Promote môi trường bằng PR" as P8
+  usecase "Xem dashboard / SLO" as P9
+  usecase "Phát hiện bất thường" as P10
+  usecase "Tìm nguyên nhân gốc (RCA)" as P11
+  usecase "Đề xuất & thực thi khắc phục" as P12
+  usecase "Duyệt hành động qua chat" as P13
+  usecase "Phân tích log CI lỗi" as P14
+  usecase "Chạy thí nghiệm chaos + eval" as P15
+  usecase "Báo cáo DORA" as P16
+}
+SRE --> P1
+SRE --> P2
+SRE --> P9
+SRE --> P15
+Approver --> P8
+Approver --> P13
+P2 ..> P3 : <<trigger>>
+CI --> P3
+CI --> P4
+CI --> P5
+CI --> P14
+CI --> P16
+CD --> P6
+CD --> P7
+Agent --> P10
+Agent --> P11
+Agent --> P12
+P12 ..> P13 : <<include>>
+P12 ..> P11 : <<include>>
+P12 -- LLM
+P14 -- LLM
+@enduml

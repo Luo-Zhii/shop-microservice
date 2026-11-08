@@ -1,0 +1,28 @@
+@startuml activity-return
+title Biểu đồ hoạt động — Huỷ đơn, trả hàng, hoàn tiền
+start
+:Người mua mở chi tiết đơn;
+switch (Trạng thái đơn?)
+case (PENDING / AWAITING_PAYMENT / CONFIRMED)
+  :Bấm "Huỷ đơn" + lý do;
+  :order → CANCELLED;
+  :inventory.release (nếu chưa trừ kho)\nhoặc nhập lại kho;
+  if (Đã thanh toán online?) then (có)
+    :payment.refund → hoàn tiền phần đơn này;
+  endif
+case (DELIVERED, ≤ 7 ngày)
+  :Bấm "Trả hàng" + lý do;
+  :order → RETURN_REQUESTED;
+  :Seller / Admin xem xét;
+  if (Duyệt?) then (có)
+    :order → RETURNED;
+    :payment.refund;
+  else (không)
+    :order → DELIVERED (giữ nguyên);
+  endif
+case (SHIPPING / COMPLETED / quá 7 ngày)
+  :Không cho huỷ / trả — 409 kèm lý do;
+endswitch
+:notification gửi kết quả;
+stop
+@enduml

@@ -1,0 +1,18 @@
+@startuml deploy-onprem
+title Sơ đồ triển khai — On-premises (Proxmox + RKE2, Ansible)
+node "Proxmox VE cluster" {
+  node "lb-1 / lb-2\nHAProxy + keepalived\nVIP 10.10.0.10 (6443, 80, 443)" as lb
+  node "cp-1 / cp-2 / cp-3\nRKE2 server (etcd, CIS profile)\nsnapshot → MinIO" as cp
+  node "wk-1 / wk-2 / wk-3\nRKE2 agent\nLonghorn disk" as wk
+  node "tools-1\nHarbor + runner (label onprem)" as tools
+}
+lb --> cp : 6443 (API)
+lb --> wk : 80/443 (ingress-nginx)
+cp -- wk : Canal / Cilium CNI
+wk --> tools : pull image (Harbor)
+note right of wk
+ MetalLB cấp IP LoadBalancer
+ Longhorn: PVC 3 bản sao cho Postgres, Kafka, Mongo
+ Vault: secret → External Secrets
+end note
+@enduml

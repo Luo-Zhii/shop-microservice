@@ -1,0 +1,33 @@
+@startgantt gantt-plan
+title Kế hoạch thực hiện khoá luận (16 tuần)
+Project starts 2026-09-07
+saturday are closed
+sunday are closed
+-- Giai đoạn 1: Phân tích --
+[Khảo sát v1, đặc tả bài toán] lasts 5 days
+[Thiết kế kiến trúc, hợp đồng sự kiện] lasts 5 days
+[Khảo sát v1, đặc tả bài toán] -> [Thiết kế kiến trúc, hợp đồng sự kiện]
+-- Giai đoạn 2: Ứng dụng --
+[Platform lib + identity/catalog] lasts 10 days
+[Saga order/payment/inventory/promotion] lasts 10 days
+[Search, cart, shipping, review, notification] lasts 10 days
+[Web 3 cổng] lasts 15 days
+[Thiết kế kiến trúc, hợp đồng sự kiện] -> [Platform lib + identity/catalog]
+[Platform lib + identity/catalog] -> [Saga order/payment/inventory/promotion]
+[Saga order/payment/inventory/promotion] -> [Search, cart, shipping, review, notification]
+[Platform lib + identity/catalog] -> [Web 3 cổng]
+-- Giai đoạn 3: Nền tảng --
+[IaC AWS + on-prem] lasts 10 days
+[CI DevSecOps + GitOps] lasts 10 days
+[Quan sát + SLO] lasts 5 days
+[Thiết kế kiến trúc, hợp đồng sự kiện] -> [IaC AWS + on-prem]
+[IaC AWS + on-prem] -> [CI DevSecOps + GitOps]
+[CI DevSecOps + GitOps] -> [Quan sát + SLO]
+-- Giai đoạn 4: AIOps & đánh giá --
+[Detector + RCA + agent] lasts 10 days
+[Chaos + eval + DORA] lasts 5 days
+[Viết báo cáo, slide] lasts 10 days
+[Quan sát + SLO] -> [Detector + RCA + agent]
+[Detector + RCA + agent] -> [Chaos + eval + DORA]
+[Chaos + eval + DORA] -> [Viết báo cáo, slide]
+@endgantt

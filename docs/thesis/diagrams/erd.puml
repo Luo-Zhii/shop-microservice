@@ -1,0 +1,53 @@
+@startuml erd
+title Sơ đồ thực thể – quan hệ (ERD) — database-per-service
+hide circle
+skinparam linetype ortho
+package "db identity" {
+  entity users { *id : uuid <<PK>> --  email : text <<UQ>>  \n password_hash  \n roles : text[]  \n shop_id : uuid  \n email_verified  \n totp_secret  \n failed_logins  \n locked_until }
+  entity refresh_tokens { *token_hash : text <<PK>> -- user_id <<FK>> \n family_id \n expires_at \n revoked_at }
+  entity otp_codes { *id <<PK>> -- user_id <<FK>> \n purpose \n code_hash \n attempts \n expires_at }
+  entity signing_keys { *kid <<PK>> -- private_pem \n public_jwk \n created_at }
+}
+package "db catalog" {
+  entity categories { *id <<PK>> -- parent_id <<FK>> \n name \n slug <<UQ>> }
+  entity products { *id <<PK>> -- shop_id \n category_id <<FK>> \n title \n slug <<UQ>> \n status \n min_price \n max_price \n rating_avg \n sold_count }
+  entity variants { *id <<PK>> -- product_id <<FK>> \n sku \n options : jsonb \n price : bigint \n weight_grams \n status }
+  entity shops_cache { *shop_id <<PK>> -- name \n status }
+  entity banners { *id <<PK>> -- title \n image_url \n sort }
+}
+package "db inventory" {
+  entity skus { *sku_id <<PK>> -- product_id \n shop_id \n active }
+  entity stock { *sku_id <<PK,FK>> -- on_hand \n reserved \n CHECK(reserved<=on_hand) }
+  entity reservations { *reservation_id <<PK>> -- status \n expires_at }
+  entity reservation_items { *reservation_id <<FK>> \n *sku_id <<FK>> -- qty }
+  entity stock_movements { *id <<PK>> -- sku_id \n delta \n reason \n ref }
+}
+package "db orders" {
+  entity checkouts { *id <<PK>> -- buyer_id \n status \n payment_method \n idempotency_key <<UQ(buyer)>> \n redirect_url }
+  entity orders { *id <<PK>> -- checkout_id <<FK>> \n buyer_id \n shop_id \n status \n subtotal \n shipping_fee \n discount \n total \n shipping_address : jsonb }
+  entity order_items { *order_id <<FK>> \n *sku_id -- product_id \n unit_price \n qty }
+  entity order_status_history { *id <<PK>> -- order_id <<FK>> \n from_status \n to_status \n reason \n at }
+}
+package "db payment" {
+  entity payments { *id <<PK>> -- checkout_id <<UQ>> \n method \n amount \n status }
+  entity refunds { *id <<PK>> -- order_id <<UQ>> \n amount }
+  entity ledger_entries { *id <<PK>> -- shop_id \n order_id \n amount \n commission \n type }
+  entity payouts { *id <<PK>> -- shop_id \n amount \n status }
+}
+package "mỗi db Postgres (platform)" {
+  entity outbox { *id <<PK>> -- topic \n key \n payload : jsonb \n created_at }
+  entity processed_events { *event_id <<PK>> -- consumer \n processed_at }
+  entity schema_migrations { *name <<PK>> -- applied_at }
+}
+users ||--o{ refresh_tokens
+users ||--o{ otp_codes
+categories ||--o{ categories
+categories ||--o{ products
+products ||--|{ variants
+skus ||--|| stock
+reservations ||--|{ reservation_items
+checkouts ||--|{ orders
+orders ||--|{ order_items
+orders ||--|{ order_status_history
+payments ||--o{ refunds
+@enduml

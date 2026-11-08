@@ -1,0 +1,27 @@
+@startmindmap mindmap-stack
+* ShopNow v2 + Nền tảng
+** Ứng dụng
+*** Node.js 22 / TypeScript / Fastify
+*** Go 1.23 (inventory)
+*** Python 3.13 / FastAPI (AI)
+*** Next.js 15 + Tailwind v4
+*** PostgreSQL · Redis · MongoDB · OpenSearch · S3
+*** Kafka (outbox / inbox / DLQ)
+** DevSecOps
+*** GitHub Actions
+*** Semgrep · Gitleaks · Trivy · SonarQube · ZAP
+*** Syft SBOM · Cosign keyless · Kyverno
+*** Argo CD ApplicationSet · Argo Rollouts
+*** Helm · External Secrets · Vault / AWS SM
+left side
+** Hạ tầng hybrid
+*** Terraform (AWS VPC, EKS, RDS, ElastiCache, ECR, S3/CF, OIDC)
+*** Proxmox + Ansible + RKE2 (on-prem)
+*** kind (lab laptop)
+** Quan sát & AIOps
+*** OpenTelemetry · Prometheus · Loki · Tempo · Grafana
+*** Sloth SLO · Alertmanager
+*** IsolationForest · robust z-score · Drain3
+*** PageRank RCA · LLM agent (Ollama / Bedrock / Anthropic)
+*** Chaos Mesh · k6 · DORA
+@endmindmap

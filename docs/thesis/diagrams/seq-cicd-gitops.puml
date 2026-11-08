@@ -1,0 +1,39 @@
+@startuml seq-cicd-gitops
+title Sơ đồ tuần tự — CI DevSecOps → GitOps → triển khai đa cụm
+autonumber
+actor Dev
+participant "GitHub\n(shop-microservice)" as GH
+participant "GitHub Actions" as CI
+participant "GHCR / Harbor / ECR" as REG
+participant "Sigstore\n(Fulcio + Rekor)" as SIG
+participant "GitHub\n(shop-gitops)" as GO
+participant "Argo CD (hub)" as ARGO
+participant "Cụm on-prem\n(RKE2)" as K1
+participant "Cụm AWS\n(EKS)" as K2
+participant "Kyverno" as KY
+actor Approver
+
+Dev -> GH : git push / mở PR
+GH -> CI : trigger ci.yml
+CI -> CI : phát hiện service thay đổi
+par Song song
+  CI -> CI : typecheck + test Node (PG/Redis/Mongo service)
+  CI -> CI : go vet + go test -race
+  CI -> CI : pytest ai-service + aiops + eval
+  CI -> CI : gitleaks · Semgrep · Trivy fs (HIGH/CRITICAL → dừng)
+end
+CI -> CI : docker build → Trivy image (CRITICAL → dừng)
+CI -> REG : push image:sha
+CI -> CI : Syft SBOM (SPDX)
+CI -> SIG : cosign sign + attest (OIDC keyless)
+CI -> GO : commit environments/dev/images.yaml (tag mới)
+GO -> ARGO : webhook / poll
+ARGO -> K1 : sync dev (Helm render)
+K1 -> KY : admission: verifyImages (issuer + subject repo)
+KY --> K1 : chữ ký hợp lệ → cho phép
+== Promote ==
+Approver -> CI : workflow promote (dev → prod-aws)
+CI -> GO : mở PR images.yaml
+Approver -> GO : review + merge
+ARGO -> K2 : sync prod-aws → Argo Rollouts canary
+@enduml

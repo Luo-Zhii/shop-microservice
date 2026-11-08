@@ -1,0 +1,27 @@
+@startuml observability
+title Đường ống quan sát (OpenTelemetry → LGTM → AIOps)
+rectangle "15 service\n(OTel SDK, prom-client, pino JSON)" as app
+rectangle "OTel Collector\nreceiver otlp · k8sattributes · batch\nconnector spanmetrics + servicegraph" as col
+database "Prometheus / Mimir\n(metrics, remote write)" as prom
+database "Loki (logs)" as loki
+database "Tempo (traces,\nmetrics-generator)" as tempo
+rectangle "Grafana\nRED · saga · Kafka · AIOps · SLO" as graf
+rectangle "Sloth SLO rules\n(multi-window burn rate)" as slo
+rectangle "Alertmanager" as am
+rectangle "aiops detector + agent" as ai
+app --> col : OTLP traces
+app --> prom : /metrics (ServiceMonitor)
+app --> loki : stdout → promtail/collector
+col --> tempo
+col --> prom : spanmetrics, service graph
+col --> loki
+prom --> graf
+loki --> graf
+tempo --> graf : trace_id ↔ log
+slo --> prom
+prom --> am : alert rules
+ai --> prom : query_range
+ai --> loki
+ai --> am : alert source=aiops
+am --> ai : webhook
+@enduml

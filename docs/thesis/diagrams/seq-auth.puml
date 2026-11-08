@@ -1,0 +1,37 @@
+@startuml seq-auth
+title Sơ đồ tuần tự — Đăng ký, OTP, đăng nhập, xoay vòng refresh token, zero-trust
+autonumber
+actor User as U
+participant "web" as W
+participant "api-gateway" as G
+participant "identity" as ID
+database "identity DB" as DB
+queue Kafka as K
+participant "notification" as N
+participant "catalog (bất kỳ service)" as SVC
+
+U -> W : đăng ký email + mật khẩu
+W -> G : POST /api/identity/auth/register
+G -> ID : (rate limit 30/phút/IP)
+ID -> DB : users (argon2id), otp_codes (sha256), outbox[user.registered, user.otp_requested]
+K -> N : user.otp_requested → email OTP
+U -> W : nhập OTP
+W -> ID : POST /auth/verify-email (≤5 lần sai)
+U -> W : đăng nhập
+W -> ID : POST /auth/login {email, password, totp?}
+ID -> DB : kiểm khoá 15', đếm sai, verify argon2, TOTP
+ID --> W : accessToken (RS256, 15', kid) + refreshToken (family F, gen 1)
+W -> G : GET /api/catalog/seller/products\nAuthorization: Bearer …
+G -> ID : (cache) GET /.well-known/jwks.json
+G -> G : verify chữ ký, iss, aud, exp
+G -> SVC : chuyển tiếp + x-request-id
+SVC -> SVC : tự verify JWT lần nữa (zero-trust), requireRole(seller)
+== 15 phút sau ==
+W -> ID : POST /auth/refresh {gen 1}
+ID -> DB : revoke gen 1, phát gen 2 (cùng family F)\nđọc lại roles/shopId mới nhất
+ID --> W : token mới
+== Kẻ gian dùng lại refresh gen 1 ==
+U -> ID : POST /auth/refresh {gen 1}
+ID -> DB : gen 1 đã revoke → thu hồi CẢ family F
+ID --> U : 401 TOKEN_REUSED
+@enduml

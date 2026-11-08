@@ -1,0 +1,38 @@
+@startuml activity-ci
+title Biểu đồ hoạt động — Pipeline DevSecOps (ci.yml)
+start
+:push / PR;
+:Phát hiện service thay đổi (changed-services.mjs);
+fork
+  :Node: typecheck + test (+PG/Redis/Mongo);
+fork again
+  :Go: vet + test -race + golangci-lint;
+fork again
+  :Python: pytest + eval AIOps;
+fork again
+  :Web: tsc + next build;
+fork again
+  :Security: gitleaks · Semgrep · Trivy fs · Sonar;
+end fork
+if (Tất cả qua?) then (không)
+  :Pipeline đỏ;
+  :ci-assistant: LLM giải thích lỗi → comment PR;
+  stop
+endif
+if (Là PR?) then (có)
+  :Chờ review;
+  stop
+endif
+while (Còn image cần build?) is (còn)
+  :docker buildx (cache GHA);
+  if (Trivy image có CRITICAL?) then (có)
+    :Dừng;
+    stop
+  endif
+  :push GHCR (+ Harbor, + ECR qua OIDC);
+  :Syft SBOM → cosign sign + attest;
+endwhile (hết)
+:Ghi tag vào shop-gitops/environments/dev/images.yaml;
+:Argo CD đồng bộ dev;
+stop
+@enduml

@@ -1,0 +1,42 @@
+@startuml state-others
+title Biểu đồ trạng thái — Thanh toán · Vận đơn · Giữ chỗ kho · Sản phẩm · Shop
+state "Payment" as PAY {
+  [*] --> P_PENDING : payment.request
+  [*] --> PENDING_COD : method = COD
+  P_PENDING --> SUCCEEDED : callback hợp lệ (HMAC)
+  P_PENDING --> FAILED : callback fail / hết hạn
+  SUCCEEDED --> REFUNDED : payment.refund (mỗi đơn 1 lần)
+  PENDING_COD --> COLLECTED : order.completed
+}
+state "Shipment" as SH {
+  [*] --> CREATED : order.confirmed
+  CREATED --> PICKED : seller giao hãng
+  CREATED --> S_CANCELLED : order.cancelled
+  PICKED --> IN_TRANSIT : webhook hãng
+  IN_TRANSIT --> SH_DELIVERED : webhook hãng
+  IN_TRANSIT --> SH_FAILED : giao thất bại
+}
+state "Reservation (inventory)" as RS {
+  [*] --> RESERVED : reserve (all-or-nothing)
+  RESERVED --> COMMITTED : inventory.commit
+  RESERVED --> RELEASED : inventory.release
+  RESERVED --> EXPIRED : sweeper quá expiresAt
+}
+state "Product" as PR {
+  [*] --> DRAFT
+  DRAFT --> PR_PENDING : seller gửi duyệt
+  PR_PENDING --> APPROVED : admin duyệt
+  PR_PENDING --> REJECTED : admin từ chối (lý do)
+  REJECTED --> DRAFT : seller sửa
+  APPROVED --> HIDDEN : seller / admin ẩn
+  HIDDEN --> PR_PENDING : gửi duyệt lại
+}
+state "Shop" as SP {
+  [*] --> SP_PENDING : nộp hồ sơ
+  SP_PENDING --> SP_APPROVED : duyệt → role seller
+  SP_PENDING --> SP_REJECTED
+  SP_REJECTED --> SP_PENDING : sửa hồ sơ
+  SP_APPROVED --> SUSPENDED : khoá → bỏ role, ẩn SP
+  SUSPENDED --> SP_APPROVED : mở lại
+}
+@enduml

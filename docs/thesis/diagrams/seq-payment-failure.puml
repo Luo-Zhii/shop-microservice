@@ -1,0 +1,42 @@
+@startuml seq-payment-failure
+title Sơ đồ tuần tự — Thanh toán online thất bại → bù trừ (compensation)
+autonumber
+actor "Người mua" as B
+participant "web" as W
+participant "order" as O
+queue Kafka as K
+participant "inventory" as I
+participant "payment" as PAY
+participant "Cổng thanh toán\n(MOCK / VNPay)" as GW
+participant "promotion" as P
+participant "notification" as N
+
+note over O : checkout MOCK đã PENDING,\ninventory.reserve đã gửi
+K -> I : inventory.reserve
+I -> K : inventory.reserved {expiresAt}
+K -> O : inventory.reserved
+O -> K : AWAITING_PAYMENT; payment.request (outbox)
+K -> PAY : payment.request (idempotent theo checkoutId)
+PAY -> PAY : tạo payment PENDING, ký URL
+PAY -> K : payment.created {redirectUrl}
+K -> O : lưu redirectUrl
+W -> O : poll → redirectUrl
+W -> GW : chuyển hướng người mua
+B -> GW : bấm "Thanh toán thất bại"
+GW -> PAY : POST /pay/mock/:id/complete {fail}\n(VNPay: return/IPN verify HMAC-SHA512)
+PAY -> PAY : payment FAILED (dedupe callback)
+PAY -> K : payment.failed
+K -> O : payment.failed
+O -> O : orders → CANCELLED(PAYMENT_FAILED)
+O -> K : inventory.release, order.cancelled
+K -> I : release: reserved -= q (RELEASED)
+I -> K : inventory.released, stock.changed
+K -> P : order.cancelled → nhả voucher + suất flash sale
+K -> N : "Đơn đã huỷ: thanh toán thất bại"
+PAY --> B : redirect WEB_URL/checkout/result
+alt Người mua bỏ ngang (không bấm gì)
+  I -> I : sweeper: quá expiresAt → EXPIRED, nhả kho
+  I -> K : inventory.expired
+  K -> O : CANCELLED(PAYMENT_TIMEOUT)
+end
+@enduml

@@ -1,0 +1,33 @@
+@startuml deploy-aws
+title Sơ đồ triển khai — AWS (Terraform: aws-network, aws-eks, aws-data, aws-edge)
+skinparam rectangle { RoundCorner 15 }
+actor User
+cloud "Route53 + CloudFront + WAF" as cf
+rectangle "VPC 3 AZ" {
+  rectangle "Public subnets (a/b/c)" {
+    node "ALB (AWS LB Controller)" as alb
+    node "NAT GW ×1 (dev) / ×3 (prod)" as nat
+  }
+  rectangle "Private subnets (a/b/c)" {
+    node "EKS node group system (on-demand)" as ng1
+    node "EKS node group workload (spot)" as ng2
+  }
+  rectangle "Intra / database subnets" {
+    database "RDS Postgres Multi-AZ\n(managed master password)" as rds
+    database "ElastiCache Redis (TLS)" as redis
+  }
+  node "VPC endpoints: S3, ECR, STS, Secrets Manager" as vpce
+}
+storage "S3 media (SSE, versioning, OAC)" as s3
+database "ECR (immutable, scan on push)" as ecr
+component "IAM: GitHub OIDC role · Pod Identity cho ESO" as iam
+User --> cf
+cf --> alb : api / web
+cf --> s3 : ảnh
+alb --> ng2
+ng2 --> rds : SG chỉ từ node EKS
+ng2 --> redis
+ng2 --> vpce
+vpce --> ecr
+ng1 --> nat : egress
+@enduml

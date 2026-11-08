@@ -1,0 +1,38 @@
+@startuml activity-aiops
+title Biểu đồ hoạt động — Vòng lặp phát hiện & phản ứng AIOps
+start
+repeat
+  :Thu metric 30s/service (p95, error rate, rps, CPU, mem, DLQ);
+  :Thu log → Drain3 template;
+  :Chuẩn hoá đặc trưng, cửa sổ trượt;
+  fork
+    :IsolationForest đa biến;
+  fork again
+    :Robust z-score (median/MAD);
+  fork again
+    :Template log mới / tăng đột biến;
+  end fork
+  :Gộp điểm bất thường [0..1] mỗi service;
+  if (score > ngưỡng trong ≥ 2 bước?) then (có)
+    :Đẩy alert lên Alertmanager;
+  endif
+repeat while (đang chạy?)
+-> webhook;
+:Agent nhận alert → tạo incident;
+:Gom bối cảnh: metric, log, trace, deploy gần đây;
+:RCA PageRank trên service graph;
+:LLM tóm tắt + chọn hành động theo runbook;
+if (Có hành động an toàn?) then (có)
+  :Gửi Telegram/Slack chờ duyệt;
+  if (SRE duyệt?) then (có)
+    :Thực thi (allowlist, DRY_RUN?), ghi audit;
+  else (từ chối)
+    :Ghi nhận, chuyển xử lý thủ công;
+  endif
+else (không)
+  :Chỉ thông báo + chẩn đoán;
+endif
+:Theo dõi tới khi hết bất thường → resolved;
+:Tính MTTD / MTTR;
+stop
+@enduml

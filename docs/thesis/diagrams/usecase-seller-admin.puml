@@ -1,0 +1,63 @@
+@startuml usecase-seller-admin
+left to right direction
+skinparam actorStyle awesome
+title Biểu đồ use case — Người bán & Quản trị sàn
+actor "Người mua" as Buyer
+actor "Người bán" as Seller
+actor "Quản trị sàn" as Admin
+actor "ai-service" as AI <<system>>
+Buyer <|-- Seller
+rectangle "Seller Center" {
+  usecase "Nộp hồ sơ mở shop (KYC)" as S1
+  usecase "Quản lý sản phẩm + biến thể" as S2
+  usecase "Upload ảnh (presigned)" as S2a
+  usecase "AI viết mô tả" as S2b
+  usecase "Gửi duyệt / ẩn sản phẩm" as S3
+  usecase "Cập nhật tồn kho" as S4
+  usecase "Xử lý đơn (giao vận chuyển)" as S5
+  usecase "Duyệt / từ chối trả hàng" as S6
+  usecase "Tạo voucher shop" as S7
+  usecase "Trả lời đánh giá" as S8
+  usecase "Ví & rút tiền" as S9
+  usecase "Xem thống kê doanh thu" as S10
+}
+rectangle "Admin" {
+  usecase "Duyệt / khoá shop" as A1
+  usecase "Duyệt / từ chối sản phẩm" as A2
+  usecase "Quản lý danh mục" as A3
+  usecase "Voucher sàn & flash sale" as A4
+  usecase "Banner trang chủ" as A5
+  usecase "Quản lý người dùng" as A6
+  usecase "Xử lý trả hàng, đơn" as A7
+  usecase "Chi trả cho shop" as A8
+  usecase "Kiểm duyệt đánh giá" as A9
+  usecase "Dashboard GMV" as A10
+}
+Buyer --> S1
+Seller --> S2
+Seller --> S3
+Seller --> S4
+Seller --> S5
+Seller --> S6
+Seller --> S7
+Seller --> S8
+Seller --> S9
+Seller --> S10
+S2 ..> S2a : <<include>>
+S2 <.. S2b : <<extend>>
+S2b -- AI
+Admin --> A1
+Admin --> A2
+Admin --> A3
+Admin --> A4
+Admin --> A5
+Admin --> A6
+Admin --> A7
+Admin --> A8
+Admin --> A9
+Admin --> A10
+A9 -- AI : đánh dấu vi phạm
+S1 ..> A1 : <<trigger>>
+S3 ..> A2 : <<trigger>>
+S9 ..> A8 : <<trigger>>
+@enduml
