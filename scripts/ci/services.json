@@ -1,0 +1,23 @@
+{
+  "node": ["api-gateway", "identity", "user-profile", "seller", "catalog", "search", "cart", "promotion", "order", "payment", "shipping", "review", "notification"],
+  "images": {
+    "api-gateway": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=api-gateway", "paths": ["services/api-gateway/**"] },
+    "identity": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=identity", "paths": ["services/identity/**"] },
+    "user-profile": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=user-profile", "paths": ["services/user-profile/**"] },
+    "seller": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=seller", "paths": ["services/seller/**"] },
+    "catalog": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=catalog", "paths": ["services/catalog/**"] },
+    "search": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=search", "paths": ["services/search/**"] },
+    "cart": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=cart", "paths": ["services/cart/**"] },
+    "promotion": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=promotion", "paths": ["services/promotion/**"] },
+    "order": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=order", "paths": ["services/order/**"] },
+    "payment": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=payment", "paths": ["services/payment/**"] },
+    "shipping": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=shipping", "paths": ["services/shipping/**"] },
+    "review": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=review", "paths": ["services/review/**"] },
+    "notification": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=notification", "paths": ["services/notification/**"] },
+    "inventory": { "context": "services/inventory", "dockerfile": "services/inventory/Dockerfile", "args": "", "paths": ["services/inventory/**"] },
+    "ai-service": { "context": "services/ai-service", "dockerfile": "services/ai-service/Dockerfile", "args": "", "paths": ["services/ai-service/**"] },
+    "aiops": { "context": "aiops", "dockerfile": "aiops/Dockerfile", "args": "", "paths": ["aiops/**"] },
+    "web": { "context": ".", "dockerfile": "apps/web/Dockerfile", "args": "", "paths": ["apps/web/**", "packages/contracts/**"] }
+  },
+  "shared": ["packages/**", "pnpm-lock.yaml", "deploy/docker/node-service.Dockerfile", "scripts/build-service.mjs"]
+}

@@ -1,0 +1,21 @@
+# DAST: OWASP ZAP quét môi trường dev/staging sau khi Argo CD triển khai (lịch hằng đêm + chạy tay).
+name: dast
+on:
+  schedule: [{ cron: "0 19 * * *" }] # 02:00 giờ VN
+  workflow_dispatch:
+    inputs:
+      target: { description: URL cần quét, default: "https://shopnow-dev.luo.io.vn" }
+permissions: { contents: read, issues: write }
+jobs:
+  zap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: .zap }
+      - name: ZAP baseline (web)
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: ${{ inputs.target || vars.DAST_TARGET_URL }}
+          rules_file_name: .zap/rules.tsv
+          fail_action: true
+          allow_issue_writing: true

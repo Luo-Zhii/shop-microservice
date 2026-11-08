@@ -1,0 +1,39 @@
+# AI cho DevOps: khi pipeline CI thất bại, LLM đọc log, tóm tắt nguyên nhân + gợi ý sửa, bình luận vào PR.
+name: ci-assistant
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+jobs:
+  explain:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: aiops }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -r aiops/requirements.txt
+      - name: Tải log các job lỗi
+        env: { GH_TOKEN: "${{ github.token }}", RUN_ID: "${{ github.event.workflow_run.id }}" }
+        run: |
+          gh run view "$RUN_ID" --repo "${{ github.repository }}" --log-failed > failed.log || true
+          wc -l failed.log
+      - name: Phân tích bằng LLM (dự phòng theo luật nếu không có key)
+        working-directory: aiops
+        env:
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'none' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m aiops.ci_assistant --log ../failed.log --context "${{ github.repository }} run ${{ github.event.workflow_run.id }}" --output ../explain.md
+      - name: Bình luận vào PR
+        if: github.event.workflow_run.event == 'pull_request'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.workflow_run.head_sha }}/pulls" --jq '.[0].number')
+          [ -n "$pr" ] && gh pr comment "$pr" --repo "${{ github.repository }}" --body-file explain.md
+      - uses: actions/upload-artifact@v4
+        with: { name: ci-explain, path: explain.md }

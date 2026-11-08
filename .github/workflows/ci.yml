@@ -1,0 +1,302 @@
+# DevSecOps pipeline cho ShopNow v2
+#   test (Node / Go / Python / Web) ─┐
+#   security (gitleaks, semgrep, trivy fs, sonar) ─┼─▶ build-push (chỉ service thay đổi) ─▶ trivy image ─▶ SBOM ─▶ cosign ký + attest
+#                                                  └─▶ update-gitops (environments/dev/images.yaml) ─▶ Argo CD tự đồng bộ
+# Cổng chặn THẬT: test lỗi, lộ secret, lỗ hổng CRITICAL, image chưa ký (Kyverno chặn ở cụm) đều dừng pipeline.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: Build lại toàn bộ image
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.8.1"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.detect.outputs.images }}
+      any: ${{ steps.detect.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: detect
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          FORCE_ALL: ${{ inputs.force_all || 'false' }}
+        run: |
+          images=$(node scripts/ci/changed-services.mjs)
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+          echo "any=$([ "$images" = "[]" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+          echo "### Image sẽ build" >> "$GITHUB_STEP_SUMMARY"
+          echo "$images" | jq -r '.[].name' | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+
+  node-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: shopnow, POSTGRES_PASSWORD: shopnow }
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shopnow" --health-interval 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["56379:6379"]
+      mongo:
+        image: mongo:7
+        ports: ["57017:27017"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit + integration test
+        run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://shopnow:shopnow@localhost:55432/postgres
+          REDIS_URL: redis://localhost:56379
+          MONGO_URL: mongodb://localhost:57017
+      - name: Build bundle
+        run: pnpm build
+
+  go-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: services/inventory }
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: shopnow, POSTGRES_PASSWORD: shopnow }
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shopnow" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.23", cache-dependency-path: services/inventory/go.sum }
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+        env: { TEST_DATABASE_URL: "postgres://shopnow:shopnow@localhost:55432/postgres?sslmode=disable" }
+      - uses: golangci/golangci-lint-action@v6
+        with: { working-directory: services/inventory, version: v1.62 }
+
+  python-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: shopnow, POSTGRES_PASSWORD: shopnow }
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U shopnow" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r services/ai-service/requirements.txt -r aiops/requirements.txt
+      - name: ai-service
+        run: python -m pytest -q
+        working-directory: services/ai-service
+      - name: aiops
+        run: python -m pytest -q
+        working-directory: aiops
+      - name: AIOps — đánh giá offline (số liệu cho khoá luận)
+        working-directory: aiops
+        run: python -m aiops.eval.synthetic --scenarios 30
+      - uses: actions/upload-artifact@v4
+        with: { name: aiops-eval, path: aiops/eval/results/ }
+
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: "${{ env.PNPM_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile --filter @shopnow/web...
+      - run: pnpm --filter @shopnow/web exec tsc --noEmit
+      - run: pnpm --filter @shopnow/web build
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: SAST (Semgrep)
+        run: |
+          pipx run semgrep scan --config p/ci --config p/nodejs --config p/typescript --config p/golang --config p/python \
+            --exclude legacy --sarif --output semgrep.sarif --error --severity ERROR
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: semgrep.sarif, category: semgrep }
+      - name: SCA + IaC (Trivy filesystem)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          skip-dirs: legacy
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          output: trivy-fs.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: trivy-fs.sarif, category: trivy-fs }
+      - name: Code quality (SonarQube)
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL || 'https://sonarcloud.io' }}
+
+  build-push:
+    needs: [changes, node-test, go-test, python-test, web-build, security]
+    if: github.event_name != 'pull_request' && needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # cosign keyless + OIDC sang AWS (không dùng access key dài hạn)
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.changes.outputs.images) }}
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/shopnow/${{ matrix.image.name }}
+      TAG: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Build (chưa push) để quét trước
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          build-args: |
+            ${{ matrix.image.args }}
+            APP_VERSION=${{ github.sha }}
+          load: true
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+      - name: Quét image (Trivy) — chặn CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Push
+        id: push
+        run: |
+          docker push "$IMAGE:$TAG"
+          echo "digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)" >> "$GITHUB_OUTPUT"
+      - name: SBOM (Syft, SPDX)
+        uses: anchore/sbom-action@v0
+        with: { image: "${{ env.IMAGE }}:${{ env.TAG }}", format: spdx-json, output-file: sbom.spdx.json }
+      - uses: sigstore/cosign-installer@v3
+      - name: Ký image + attest SBOM (Sigstore keyless)
+        env: { DIGEST: "${{ steps.push.outputs.digest }}" }
+        run: |
+          cosign sign --yes "$IMAGE@$DIGEST"
+          cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$IMAGE@$DIGEST"
+      - name: Đẩy thêm sang Harbor (on-prem)
+        if: vars.HARBOR_REGISTRY != ''
+        env:
+          HARBOR: ${{ vars.HARBOR_REGISTRY }}
+          HARBOR_USER: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASS: ${{ secrets.HARBOR_PASSWORD }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          echo "$HARBOR_PASS" | docker login "$HARBOR" -u "$HARBOR_USER" --password-stdin
+          docker tag "$IMAGE:$TAG" "$HARBOR/shopnow/${{ matrix.image.name }}:$TAG"
+          docker push "$HARBOR/shopnow/${{ matrix.image.name }}:$TAG"
+          cosign copy --force "$IMAGE@$DIGEST" "$HARBOR/shopnow/${{ matrix.image.name }}:$TAG" || true
+
+  ecr-mirror:
+    needs: [changes, build-push]
+    if: vars.AWS_ROLE_ARN != '' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { id-token: write, contents: read, packages: read }
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.changes.outputs.images) }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ vars.AWS_ROLE_ARN }}", aws-region: ap-southeast-1 }
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - uses: sigstore/cosign-installer@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Sao chép image + chữ ký sang ECR
+        run: |
+          src="ghcr.io/${{ github.repository_owner }}/shopnow/${{ matrix.image.name }}:sha-${{ github.sha }}"
+          dst="${{ steps.ecr.outputs.registry }}/shopnow/${{ matrix.image.name }}:sha-${{ github.sha }}"
+          cosign copy --force "$src" "$dst"
+
+  update-gitops:
+    needs: [changes, build-push]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: read }
+    concurrency: { group: gitops-dev, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts/ci }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/shop-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+      - name: Ghi tag mới vào environments/dev/images.yaml
+        env: { IMAGES: "${{ needs.changes.outputs.images }}", TAG: "sha-${{ github.sha }}" }
+        run: |
+          for svc in $(echo "$IMAGES" | jq -r '.[].name'); do
+            bash scripts/ci/bump-image.sh gitops dev "$svc" "$TAG"
+          done
+      - name: Commit (dev tự động; staging/prod đi qua PR ở workflow promote)
+        working-directory: gitops
+        run: |
+          git config user.name "shopnow-ci[bot]"
+          git config user.email "ci@shopnow.local"
+          git add environments/dev/images.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(dev): deploy ${GITHUB_SHA::7} từ ${{ github.repository }}" \
+            -m "Source: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+          git push

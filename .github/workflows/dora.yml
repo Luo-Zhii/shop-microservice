@@ -1,0 +1,17 @@
+# Báo cáo DORA hằng tuần (dùng cho chương Đánh giá của khoá luận).
+name: dora
+on:
+  schedule: [{ cron: "0 1 * * 1" }]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { env: [dev, prod-onprem, prod-aws] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: tools/dora }
+      - run: python3 tools/dora/dora.py --repo ${{ github.repository_owner }}/shop-gitops --source-repo ${{ github.repository }} --env ${{ matrix.env }} --days 30 --output dora-${{ matrix.env }}.md ${{ vars.AIOPS_URL && format('--aiops-url {0}', vars.AIOPS_URL) || '' }}
+        env: { GITHUB_TOKEN: "${{ secrets.GITOPS_TOKEN || github.token }}" }
+      - run: cat dora-${{ matrix.env }}.md >> "$GITHUB_STEP_SUMMARY"

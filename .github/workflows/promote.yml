@@ -1,0 +1,32 @@
+# Promote phiên bản giữa môi trường bằng Pull Request vào repo GitOps (dev → staging → prod-onprem / prod-aws).
+# Phê duyệt PR = phê duyệt release (4-eyes), merge xong Argo CD tự đồng bộ; rollback = revert PR.
+name: promote
+on:
+  workflow_dispatch:
+    inputs:
+      from: { description: Môi trường nguồn, type: choice, options: [dev, staging], default: dev }
+      to: { description: Môi trường đích, type: choice, options: [staging, prod-onprem, prod-aws], default: staging }
+permissions: { contents: read }
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/shop-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+      - name: Sao chép images.yaml
+        run: |
+          test "${{ inputs.from }}" != "${{ inputs.to }}"
+          cp "environments/${{ inputs.from }}/images.yaml" "environments/${{ inputs.to }}/images.yaml"
+          git diff --stat
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+          branch: promote/${{ inputs.from }}-to-${{ inputs.to }}
+          title: "release: promote ${{ inputs.from }} → ${{ inputs.to }}"
+          body: |
+            Promote image tag từ `${{ inputs.from }}` sang `${{ inputs.to }}`.
+            - Canary (Argo Rollouts) + AnalysisTemplate tự rollback nếu error rate / p95 vượt ngưỡng.
+            - Rollback thủ công: revert PR này.
+          labels: release, ${{ inputs.to }}
