@@ -1,0 +1,7 @@
+{
+  "name": "@shopnow/diagrams",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Render + kiểm cú pháp sơ đồ Mermaid trong docs/thesis/diagrams/README.md ra PNG bằng Chromium headless",
+  "scripts": { "render": "node render-mermaid.mjs" }
+}

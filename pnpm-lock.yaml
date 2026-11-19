@@ -24,41 +24,41 @@ importers:
   apps/web:
     dependencies:
       '@tanstack/react-query':
-        specifier: '5'
+        specifier: ^5.107.1
         version: 5.107.1(@types/react@19.3.0)(react@19.3.1)
       lucide-react:
         specifier: ^1.70.0
         version: 1.70.0(@types/react@19.3.0)(react@19.3.1)
       next:
-        specifier: '15'
+        specifier: ^15.5.29
         version: 15.5.29(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react:
-        specifier: '19'
+        specifier: ^19.3.1
         version: 19.3.1
       react-dom:
-        specifier: '19'
+        specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
     devDependencies:
       '@tailwindcss/postcss':
-        specifier: '4'
+        specifier: ^4.3.5
         version: 4.3.5
       '@types/node':
-        specifier: '22'
+        specifier: ^22.10.0
         version: 22.20.5
       '@types/react':
-        specifier: '19'
+        specifier: ^19.3.0
         version: 19.3.0
       '@types/react-dom':
-        specifier: '19'
+        specifier: ^19.2.0
         version: 19.3.0(@types/react@19.3.0)
       postcss:
         specifier: ^8.5.32
         version: 8.5.32
       tailwindcss:
-        specifier: '4'
+        specifier: ^4.3.5
         version: 4.3.5
       typescript:
-        specifier: '5'
+        specifier: ^5.9.3
         version: 5.9.3
 
   packages/contracts: {}
@@ -135,6 +135,18 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.23.1
+
+  services/accounting:
+    dependencies:
+      '@shopnow/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@shopnow/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
 
   services/api-gateway:
     dependencies:
@@ -336,6 +348,8 @@ importers:
         version: 5.11.1
 
   tests/e2e: {}
+
+  tools/diagrams: {}
 
 packages:
 

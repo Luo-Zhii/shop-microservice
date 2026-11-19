@@ -6,6 +6,8 @@ import type { Logger } from './logger';
 // BIGINT (tiền, số đếm) trả về number thay vì string — an toàn vì VND < 2^53.
 pg.types.setTypeParser(20, (v) => Number.parseInt(v, 10));
 pg.types.setTypeParser(1700, (v) => Number.parseFloat(v));
+// DATE (không giờ) giữ nguyên chuỗi YYYY-MM-DD — tránh lệch ngày do múi giờ khi đổi sang Date
+pg.types.setTypeParser(1082, (v) => v);
 
 export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;

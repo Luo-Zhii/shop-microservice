@@ -9,9 +9,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN="$ROOT/.dev"
 mkdir -p "$RUN/logs" "$RUN/pids"
 
-NODE_SERVICES=(identity user-profile seller catalog search cart promotion order payment shipping review notification api-gateway)
+NODE_SERVICES=(identity user-profile seller catalog search cart promotion order payment shipping review notification accounting api-gateway)
 declare -A PORT=([api-gateway]=8080 [identity]=8101 [user-profile]=8102 [seller]=8103 [catalog]=8104 [search]=8105 [inventory]=8106
-  [cart]=8107 [promotion]=8108 [order]=8109 [payment]=8110 [shipping]=8111 [review]=8112 [notification]=8113 [ai-service]=8114 [aiops]=8120)
+  [cart]=8107 [promotion]=8108 [order]=8109 [payment]=8110 [shipping]=8111 [review]=8112 [notification]=8113 [ai-service]=8114 [accounting]=8115 [warehouse]=8116 [aiops]=8120)
 
 PG="postgres://shopnow:shopnow@localhost:55432"
 export NODE_ENV=development LOG_LEVEL="${LOG_LEVEL:-info}" KAFKA_BROKERS=localhost:59092 REDIS_URL=redis://localhost:56379

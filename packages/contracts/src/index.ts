@@ -11,6 +11,7 @@ export const Topics = {
   paymentEvent: 'payment.event.v1',
   order: 'order.v1',
   shipping: 'shipping.v1',
+  accounting: 'accounting.v1',
 } as const;
 export type Topic = (typeof Topics)[keyof typeof Topics];
 export const ALL_TOPICS: Topic[] = Object.values(Topics);
@@ -25,7 +26,7 @@ export interface EventEnvelope<T = unknown> {
   data: T;
 }
 
-export type Role = 'buyer' | 'seller' | 'admin';
+export type Role = 'buyer' | 'seller' | 'admin' | 'accountant' | 'warehouse';
 
 export interface Address {
   fullName: string;

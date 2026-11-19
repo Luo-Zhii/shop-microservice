@@ -3,5 +3,6 @@ packages:
   - services/*
   - apps/*
   - tests/e2e
+  - tools/diagrams
 onlyBuiltDependencies:
   - esbuild
