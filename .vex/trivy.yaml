@@ -1,0 +1,4 @@
+# Trivy đọc tài liệu OpenVEX: CVE có statement "not_affected"/"fixed" sẽ không chặn pipeline.
+vulnerability:
+  vex:
+    - .vex/shopnow.openvex.json

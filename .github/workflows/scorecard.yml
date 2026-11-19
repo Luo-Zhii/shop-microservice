@@ -1,0 +1,24 @@
+# OpenSSF Scorecard: chấm điểm thực hành bảo mật chuỗi cung ứng của repo (branch protection, pinned deps,
+# token permissions, signed releases, SAST...) — kết quả lên tab Security (SARIF) và badge công khai.
+name: scorecard
+on:
+  push: {branches: [main]}
+  schedule: [{cron: "17 3 * * 1"}]
+  workflow_dispatch:
+permissions: read-all
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: github/codeql-action/upload-sarif@v3
+        with: {sarif_file: scorecard.sarif, category: scorecard}

@@ -216,6 +216,8 @@ jobs:
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.IMAGE }}:${{ env.TAG }}
+          # VEX: bỏ qua CVE đã được đánh giá not_affected (có lý do, có người ký) — giảm nhiễu nhưng vẫn truy vết
+          trivy-config: .vex/trivy.yaml
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
@@ -233,6 +235,15 @@ jobs:
         run: |
           cosign sign --yes "$IMAGE@$DIGEST"
           cosign attest --yes --type spdxjson --predicate sbom.spdx.json "$IMAGE@$DIGEST"
+      - name: SLSA build provenance (GitHub attestation, Sigstore) — đẩy kèm registry
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Attest OpenVEX (lỗ hổng đã đánh giá không khai thác được)
+        env: { DIGEST: "${{ steps.push.outputs.digest }}" }
+        run: cosign attest --yes --type openvex --predicate .vex/shopnow.openvex.json "$IMAGE@$DIGEST"
       - name: Đẩy thêm sang Harbor (on-prem)
         if: vars.HARBOR_REGISTRY != ''
         env:

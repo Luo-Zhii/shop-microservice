@@ -1,0 +1,10 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/Luo-Zhii/shop-microservice/.vex/shopnow.openvex.json",
+  "author": "ShopNow Platform Security",
+  "role": "Document Creator",
+  "timestamp": "2026-11-20T00:00:00Z",
+  "version": 1,
+  "tooling": "Viết tay theo quy trình .vex/README.md; Trivy đọc qua --vex",
+  "statements": []
+}
