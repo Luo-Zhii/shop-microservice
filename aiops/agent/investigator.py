@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 
 from ..llm import LLMError
 from ..mcp.tools import REMEDIATIONS, EvidenceLog, Toolbox
+from .responder import ALERT_SYMPTOMS
+from .runbook import choose_action
 
 log = logging.getLogger("aiops.investigator")
 
@@ -212,12 +214,25 @@ class Investigator:
         if target != svc and deps.ok and target in (deps.data or {}).get("calls", []) + [target]:
             hyps.append({"service": svc, "cause": f"triệu chứng lan từ {target}", "confidence": 0.3,
                          "evidence": [deps.id, rank.id]})
-        if changed:
-            rem = {"action": "rollback", "service": target, "reason": f"triển khai gần đây ({dep.id})"}
-        elif p.get("crashloop"):
-            rem = {"action": "restart", "service": target, "reason": f"crashloop ({pods.id})"}
-        else:
-            rem = {"action": "notify", "service": target, "reason": "không có hành động an toàn rõ ràng"}
+        # hành động chọn bằng runbook (cùng luật với Responder) trên ngữ cảnh rút từ bằng chứng → nhất quán, kiểm toán được
+        an = self.tools.call("get_anomalies", {}, ev)
+        steps.append({"n": len(steps) + 1, "thought": f"Đặc trưng lệch của {target}", "tool": "get_anomalies", "args": {},
+                      "evidence": an.id, "ok": an.ok})
+        feats = ((an.data or {}).get("services", {}).get(target) or {}).get("top_features", []) if an.ok else []
+        symptoms = sorted({f for f, z in feats if z >= 3})
+        for a in (inc.data.get("alerts") or []):
+            symptoms = sorted(set(symptoms) | {f for k, f in ALERT_SYMPTOMS.items() if k in (a or "").lower()})
+        ctx = {"service": target, "recent_deploy": bool(changed), "crashloop": bool(p.get("crashloop")),
+               "pod_restarted": bool(p.get("pod_restarted")), "symptoms": symptoms,
+               "score": ((an.data or {}).get("services", {}).get(target) or {}).get("score", 0) if an.ok else 0}
+        decision = choose_action(self.r.s.runbook, ctx)
+        cites = [e for e, cond in ((dep.id, changed), (pods.id, p.get("crashloop") or p.get("pod_restarted")),
+                                   (an.id, symptoms), (rank.id, True)) if cond]
+        rem = {"action": decision["action"], "service": target, "rule": decision["rule"],
+               "reason": f"{decision['reason'] or decision['rule']} ({', '.join(cites)})", "params": decision["params"]}
+        if decision["action"] == "scale_up" and not any(h["service"] == target for h in hyps):
+            hyps.append({"service": target, "cause": f"quá tải: {', '.join(symptoms) or 'điểm bất thường cao'}",
+                         "confidence": 0.5, "evidence": [an.id, rank.id]})
         call("Ghi đề xuất khắc phục (chưa thực thi)", "propose_remediation", incident_id=incident_id,
              action=rem["action"], service=target, reason=rem["reason"])
         return {"hypotheses": hyps, "remediation": rem}

@@ -79,3 +79,15 @@ def test_chaos_runner_dry_run(tmp_path):
     assert chaos_main(["--dry-run", "--only", "pod-kill", "--out", str(tmp_path)]) == 0
     md = (tmp_path / "chaos_dryrun.md").read_text()
     assert "pod-kill-order" in md and "✓" in md
+
+
+def test_agent_eval_grounding_gate_blocks_hallucinations(tmp_path):
+    """Ablation: LLM bịa nguyên nhân với bằng chứng giả — bật lọc grounding thì không ảo giác nào lọt, tắt thì lọt hết."""
+    from aiops.eval.agent_eval import run
+
+    s = run(6, 42, tmp_path)["configs"]
+    assert s["planner"]["top1"] >= 0.8 and s["planner"]["grounding_mean"] == 1.0
+    if s["llm_halluc"]["hallucinated"]:
+        assert s["llm_halluc"]["hallucination_accepted"] == 0
+        assert s["llm_halluc_nogate"]["hallucination_accepted"] == 1
+    assert (tmp_path / "agent_eval.csv").exists()

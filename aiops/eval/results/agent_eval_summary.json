@@ -1,0 +1,100 @@
+{
+  "scenarios_fault": 25,
+  "seed": 42,
+  "elapsed_s": 79.0,
+  "configs": {
+    "planner": {
+      "top1": 0.92,
+      "action_acc": 0.92,
+      "grounding_mean": 1.0,
+      "hallucinated": 0,
+      "hallucination_accepted": null,
+      "tool_calls_mean": 8,
+      "seconds_p50": 0.017,
+      "by_fault": {
+        "cpu": {
+          "n": 6,
+          "top1": 1,
+          "action_acc": 1
+        },
+        "error": {
+          "n": 6,
+          "top1": 1,
+          "action_acc": 1
+        },
+        "latency": {
+          "n": 7,
+          "top1": 0.857,
+          "action_acc": 0.857
+        },
+        "pod_kill": {
+          "n": 6,
+          "top1": 0.833,
+          "action_acc": 0.833
+        }
+      }
+    },
+    "llm_halluc": {
+      "top1": 1,
+      "action_acc": 0.2,
+      "grounding_mean": 0.78,
+      "hallucinated": 11,
+      "hallucination_accepted": 0,
+      "tool_calls_mean": 2,
+      "seconds_p50": 0.017,
+      "by_fault": {
+        "cpu": {
+          "n": 6,
+          "top1": 1,
+          "action_acc": 0
+        },
+        "error": {
+          "n": 6,
+          "top1": 1,
+          "action_acc": 0.167
+        },
+        "latency": {
+          "n": 7,
+          "top1": 1,
+          "action_acc": 0
+        },
+        "pod_kill": {
+          "n": 6,
+          "top1": 1,
+          "action_acc": 0.667
+        }
+      }
+    },
+    "llm_halluc_nogate": {
+      "top1": 0.56,
+      "action_acc": 0.2,
+      "grounding_mean": 1.0,
+      "hallucinated": 11,
+      "hallucination_accepted": 1,
+      "tool_calls_mean": 2,
+      "seconds_p50": 0.017,
+      "by_fault": {
+        "cpu": {
+          "n": 6,
+          "top1": 0.333,
+          "action_acc": 0
+        },
+        "error": {
+          "n": 6,
+          "top1": 0.5,
+          "action_acc": 0.167
+        },
+        "latency": {
+          "n": 7,
+          "top1": 0.571,
+          "action_acc": 0
+        },
+        "pod_kill": {
+          "n": 6,
+          "top1": 0.833,
+          "action_acc": 0.667
+        }
+      }
+    }
+  }
+}
