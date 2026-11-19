@@ -1,7 +1,7 @@
 // Kiểu dữ liệu chép từ packages/contracts/src/index.ts (giữ apps/web độc lập khi build Docker)
 // + các kiểu phía giao diện. Các response chưa có hợp đồng chi tiết được khai báo "lỏng" (tuỳ chọn).
 
-export type Role = 'buyer' | 'seller' | 'admin';
+export type Role = 'buyer' | 'seller' | 'admin' | 'accountant' | 'warehouse';
 
 export interface Address {
   id?: string;
