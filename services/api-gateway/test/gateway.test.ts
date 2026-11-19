@@ -85,6 +85,7 @@ before(async () => {
   upstreams = {
     identity: echo, 'user-profile': echo, seller: echo, catalog, search: echo, inventory: deadUrl, cart: echo, promotion: promotionUrl,
     order: echo, payment: echo, shipping: echo, review: reviewUrl, notification: notificationUrl, ai: deadUrl,
+    accounting: echo, warehouse: echo, aiops: echo,
   };
   gw = createService('api-gateway-test').app;
   await buildGateway(gw, gatewayOpts());
@@ -149,6 +150,19 @@ test('JWT: token hợp lệ → x-user-id; token sai → 401; endpoint đăng nh
   const refresh = await gw.inject({ method: 'POST', url: '/api/identity/auth/refresh', headers: { authorization: 'Bearer het-han' }, payload: {} });
   assert.equal(refresh.statusCode, 200);
   assert.equal(refresh.json().url, '/auth/refresh');
+});
+
+test('AIOps qua gateway: chỉ admin; MCP/webhook không mở ra ngoài; x-actor lấy từ JWT', async () => {
+  const admin = await jwks.sign(newId(), ['admin']);
+  const buyer = await jwks.sign(newId(), ['buyer']);
+  assert.equal((await gw.inject({ method: 'GET', url: '/api/aiops/incidents' })).statusCode, 401);
+  assert.equal((await gw.inject({ method: 'GET', url: '/api/aiops/incidents', headers: { authorization: `Bearer ${buyer}` } })).statusCode, 403);
+  const ok = await gw.inject({ method: 'GET', url: '/api/aiops/incidents', headers: { authorization: `Bearer ${admin}`, 'x-actor': 'gia-mao' } });
+  assert.equal(ok.statusCode, 200);
+  assert.match(ok.json().headers['x-actor'], /@test\.local$/);
+  for (const url of ['/api/aiops/mcp', '/api/aiops/webhooks/alertmanager', '/api/aiops/metrics']) {
+    assert.equal((await gw.inject({ method: 'POST', url, headers: { authorization: `Bearer ${admin}` } })).statusCode, 403, url);
+  }
 });
 
 test('BFF product: gom catalog + review + flash sale; inventory/ai chết → degraded', async () => {
@@ -260,7 +274,7 @@ test('SSE đi xuyên proxy không bị buffer, ?token= được xác minh', asyn
 
 test('/api/status gom readyz của các upstream', async () => {
   const s = (await gw.inject({ method: 'GET', url: '/api/status' })).json();
-  assert.equal(s.total, 14);
+  assert.equal(s.total, 17);
   assert.equal(s.status, 'degraded');
   const by = Object.fromEntries(s.services.map((x: { name: string; status: string }) => [x.name, x.status]));
   assert.equal(by.catalog, 'up');

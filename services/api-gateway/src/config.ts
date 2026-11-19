@@ -23,6 +23,9 @@ export const cfg = loadConfig('api-gateway', 8080, {
   REVIEW_URL: url(8112),
   NOTIFICATION_URL: url(8113),
   AI_URL: url(8114),
+  ACCOUNTING_URL: url(8115),
+  WAREHOUSE_URL: url(8116),
+  AIOPS_URL: url(8120),
 });
 export type Config = typeof cfg;
 
@@ -43,6 +46,9 @@ export function upstreamsFrom(c: Config) {
     review: c.REVIEW_URL,
     notification: c.NOTIFICATION_URL,
     ai: c.AI_URL,
+    accounting: c.ACCOUNTING_URL,
+    warehouse: c.WAREHOUSE_URL,
+    aiops: c.AIOPS_URL,
   };
 }
 export type Upstreams = ReturnType<typeof upstreamsFrom>;

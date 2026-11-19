@@ -90,6 +90,15 @@ export async function buildGateway(app: FastifyInstance, opts: GatewayOptions) {
     }
   });
 
+  // 3b) Cổng vận hành AIOps: chỉ admin, và không mở webhook/MCP ra ngoài (chỉ gọi trong cụm)
+  app.addHook('preHandler', async (req) => {
+    const path = pathOf(req.url);
+    if (!path.startsWith('/api/aiops/')) return;
+    if (/^\/api\/aiops\/(mcp|webhooks|metrics)(\/|$)/.test(path)) throw new AppError('FORBIDDEN', 'Endpoint chỉ dùng trong cụm');
+    if (!req.user) throw unauthorized();
+    if (!req.user.roles.includes('admin')) throw new AppError('FORBIDDEN', 'Chỉ quản trị viên');
+  });
+
   // 4) Reverse proxy /api/<svc>/* → upstream (bỏ prefix)
   for (const [name, upstream] of Object.entries(opts.upstreams) as [UpstreamName, string][]) {
     const sse = name === 'notification';
@@ -107,11 +116,13 @@ export async function buildGateway(app: FastifyInstance, opts: GatewayOptions) {
           delete h['x-internal-token'];
           delete h['x-user-id'];
           delete h['x-user-roles'];
+          delete h['x-actor'];
           h['x-request-id'] = req.id;
           h['x-forwarded-for'] = [headers['x-forwarded-for'], req.ip].filter(Boolean).join(', ');
           if (req.user) {
             h['x-user-id'] = req.user.id;
             h['x-user-roles'] = req.user.roles.join(',');
+            if (name === 'aiops') h['x-actor'] = req.user.email || req.user.id; // audit trail của AIOps
           }
           return h;
         },
