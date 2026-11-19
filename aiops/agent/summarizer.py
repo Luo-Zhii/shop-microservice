@@ -11,7 +11,7 @@ from ..util import iso
 log = logging.getLogger("aiops.summarizer")
 
 FEATURE_VI = {"p95": "độ trễ p95", "err": "tỉ lệ lỗi 5xx", "rps": "lưu lượng giảm", "cpu": "CPU/request",
-              "mem": "bộ nhớ", "dlq": "message vào DLQ"}
+              "mem": "bộ nhớ", "dlq": "message vào DLQ", "lcp": "LCP p75 phía người dùng", "jserr": "lỗi JavaScript trình duyệt"}
 ACTION_VI = {"rollback": "rollback về phiên bản trước", "scale_up": "tăng thêm replica", "restart": "khởi động lại pod",
              "notify": "chỉ thông báo, chờ kỹ sư xử lý"}
 

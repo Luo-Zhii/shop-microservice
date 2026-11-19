@@ -79,7 +79,7 @@ class Toolbox:
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.get_incident),
             Tool("get_anomalies", "Điểm bất thường hiện tại của mọi service (0–1) và đặc trưng lệch nhiều nhất.",
                  {}, [], self.get_anomalies),
-            Tool("query_metrics", "Chỉ số RED/tài nguyên hiện tại của một service (p95, err, rps, cpu, mem, dlq).",
+            Tool("query_metrics", "Chỉ số RED/tài nguyên hiện tại của một service (p95, err, rps, cpu, mem, dlq; web: lcp, jserr từ RUM).",
                  {"service": svc}, ["service"], self.query_metrics),
             Tool("search_logs", "Nhóm log lỗi gần đây của service (đã gom mẫu, kèm số lần).",
                  {"service": svc, "minutes": _int("Cửa sổ thời gian", 1, 120)}, ["service"], self.search_logs),

@@ -17,20 +17,26 @@ services:
   - review
   - notification
   - ai-service
+  - accounting
+  - warehouse
+  - web
 
 # Đồ thị gọi tĩnh (fallback khi chưa có service graph từ Tempo/OTel). caller → callee.
 # sync = HTTP đồng bộ; async = qua Kafka (producer → consumer), trọng số lan truyền thấp hơn.
 graph:
   sync:
     api-gateway: [identity, user-profile, seller, catalog, search, inventory, cart, promotion, order, payment,
-                  shipping, review, notification, ai-service]
+                  shipping, review, notification, ai-service, accounting, warehouse]
+    web: [api-gateway]                # trình duyệt → gateway (RUM: lcp, jserr)
+    payment: [accounting]             # /internal/payouts/paid
     order: [catalog, shipping, promotion, user-profile, seller]
     cart: [catalog, inventory]
     catalog: [seller]
   async:
-    order: [inventory, payment, shipping, promotion, cart, review, notification, ai-service]
+    order: [inventory, payment, shipping, promotion, cart, review, notification, ai-service, accounting, warehouse]
+    warehouse: [accounting]
     inventory: [order, search]
-    payment: [order, notification]
+    payment: [order, notification, accounting]
     shipping: [order, notification]
     catalog: [search, inventory, ai-service]
     identity: [user-profile, notification]
@@ -49,6 +55,11 @@ features:
   cpu: sum by (service) (rate(process_cpu_seconds_total[{window}]))
   mem: sum by (service) (process_resident_memory_bytes) / 1048576
   dlq: sum by (service) (rate(kafka_messages_consumed_total{result="dlq"}[{window}]))
+  # RUM từ trình duyệt (gateway /api/rum) — gán cho service "web": LCP p75 (giây) và lỗi JS/giây
+  lcp: >-
+    label_replace(histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[{window}]))),
+    "service", "web", "", "")
+  jserr: label_replace(sum(rate(web_errors_total[{window}])), "service", "web", "", "")
 rate_window: 1m
 
 detection:

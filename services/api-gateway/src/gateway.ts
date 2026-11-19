@@ -3,6 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import type Redis from 'ioredis';
 import { AppError, unauthorized, type Auth, type FastifyInstance, type FastifyRequest } from '@shopnow/platform';
 import type { UpstreamName, Upstreams } from './config';
+import { registerRum } from './rum';
 import { registerBff } from './bff';
 
 export interface GatewayOptions {
@@ -149,6 +150,7 @@ export async function buildGateway(app: FastifyInstance, opts: GatewayOptions) {
 
   // 5) BFF + trang trạng thái
   registerBff(app, { upstreams: opts.upstreams, timeoutMs: opts.bffTimeoutMs });
+  registerRum(app);
 
   app.get('/api/status', async () => {
     const started = Date.now();

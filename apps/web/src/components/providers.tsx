@@ -5,6 +5,7 @@ import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '@/lib/api';
 import { AuthProvider } from '@/lib/auth';
+import { Rum } from './rum';
 import { dismissToast, subscribeToasts, type ToastItem } from '@/lib/toast';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -24,6 +25,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <AuthProvider>
         {children}
         <Toaster />
+        <Rum />
       </AuthProvider>
     </QueryClientProvider>
   );

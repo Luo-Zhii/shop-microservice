@@ -165,6 +165,22 @@ test('AIOps qua gateway: chỉ admin; MCP/webhook không mở ra ngoài; x-actor
   }
 });
 
+test('RUM: Web Vitals + lỗi JS → metric, route chuẩn hoá về mẫu, payload sai bị từ chối', async () => {
+  const events = [
+    { type: 'vital', name: 'LCP', value: 2300, rating: 'good', path: '/product/ao-thun-cotton-01934f6eaaaa?ref=home' },
+    { type: 'vital', name: 'CLS', value: 0.12, rating: 'needs-improvement', path: '/orders/01934f6e-aaaa-7bbb-8ccc-000000000001' },
+    { type: 'error', kind: 'unhandledrejection', path: '/checkout' },
+  ];
+  const r = await gw.inject({ method: 'POST', url: '/api/rum', headers: { 'content-type': 'text/plain' }, payload: JSON.stringify({ events }) });
+  assert.equal(r.statusCode, 204, r.body);
+  const m = (await gw.inject({ method: 'GET', url: '/metrics' })).body;
+  assert.match(m, /web_vitals_seconds_bucket\{le="2.5"[^}]*name="LCP",route="\/product\/:id",rating="good"\} 1/);
+  assert.match(m, /web_vitals_cls_count\{[^}]*route="\/orders\/:id"/);
+  assert.match(m, /web_errors_total\{[^}]*route="\/checkout",kind="unhandledrejection"[^}]*\} 1/);
+  const bad = await gw.inject({ method: 'POST', url: '/api/rum', payload: { events: [{ type: 'vital', name: 'FID', value: 1, path: '/' }] } });
+  assert.equal(bad.statusCode, 400);
+});
+
 test('BFF product: gom catalog + review + flash sale; inventory/ai chết → degraded', async () => {
   const r = await gw.inject({ method: 'GET', url: '/api/bff/products/ao-thun' });
   assert.equal(r.statusCode, 200, r.body);
