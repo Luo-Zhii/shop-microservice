@@ -8,6 +8,7 @@ GET|POST /actions/{id}/approve?token=…  |  /actions/{id}/reject?token=…   (t
 GET  /anomalies                        snapshot điểm bất thường hiện tại
 POST /rca {scores?: {svc: điểm}}       chạy RCA theo yêu cầu
 POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LLM ReAct | planner), grounding + interlock
+GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ dữ liệu sự cố
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
@@ -242,6 +243,20 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     @app.get("/incidents/{incident_id}/investigations")
     def investigations(incident_id: str):
         return {"items": [to_api(i) for i in responder.store.investigations_for(incident_id)]}
+
+    @app.get("/incidents/{incident_id}/postmortem")
+    def postmortem(incident_id: str, format: str = "json"):
+        from .agent.postmortem import build as build_pm
+
+        inc = responder.store.get_incident(incident_id)
+        if inc is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        pm = build_pm(inc, responder.store.actions_for(incident_id), responder.store.audit_for(incident_id),
+                      responder.store.investigations_for(incident_id))
+        if format == "md":
+            return PlainTextResponse(pm["markdown"], media_type="text/markdown; charset=utf-8",
+                                     headers={"content-disposition": f'attachment; filename="postmortem-{incident_id}.md"'})
+        return pm
 
     @app.post("/investigations/{investigation_id}/propose-pr")
     def propose(investigation_id: str, request: Request):

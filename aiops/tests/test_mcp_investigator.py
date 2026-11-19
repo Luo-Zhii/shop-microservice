@@ -190,3 +190,19 @@ def test_verify_gate_rejects_lying_pr():
     assert any("không thuộc catalog" in p for p in verify(lie, rem, {"ev-2"}, "dev"))
     # file khác hành động
     assert any("không khớp" in p for p in verify({**ch, "path": "environments/prod-aws/images.yaml"}, rem, {"ev-2"}, "dev"))
+
+
+def test_postmortem_from_incident_data(tmp_path):
+    with make_app(tmp_path) as c:
+        inc_id = incident(c)
+        c.post(f"/incidents/{inc_id}/agent-investigate")
+        c.post(f"/incidents/{inc_id}/ack")
+        pm = c.get(f"/incidents/{inc_id}/postmortem").json()
+        md = pm["markdown"]
+        assert md.startswith("# Postmortem:") and "Blameless" in md
+        assert "Tác tử điều tra xong" in md and "Kỹ sư nhận xử lý" in md
+        assert "`ev-1` get_incident" in md and "rollback" in md
+        assert any("canary" in t for t in pm["action_items"])
+        r = c.get(f"/incidents/{inc_id}/postmortem?format=md")
+        assert r.headers["content-type"].startswith("text/markdown") and "attachment" in r.headers["content-disposition"]
+        assert c.get("/incidents/khong-co/postmortem").status_code == 404

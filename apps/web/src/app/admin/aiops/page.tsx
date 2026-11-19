@@ -1,7 +1,7 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, CheckCircle2, GitPullRequest, ShieldAlert, Siren, Wrench } from 'lucide-react';
+import { Bot, CheckCircle2, FileText, GitPullRequest, ShieldAlert, Siren, Wrench } from 'lucide-react';
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
@@ -81,12 +81,24 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
     mutationFn: (path: 'ack' | 'resolve') => api.post(`/aiops/incidents/${incident.id}/${path}`),
     onSuccess: () => { toast.success('Đã cập nhật'); void qc.invalidateQueries({ queryKey: ['aiops-incidents'] }); onClose(); },
   });
+  // postmortem blameless sinh từ dữ liệu sự cố → tải về .md để đưa vào wiki / họp review
+  const pm = useMutation({
+    mutationFn: () => api.get<{ markdown: string }>(`/aiops/incidents/${incident.id}/postmortem`),
+    onSuccess: ({ markdown }) => {
+      const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: `postmortem-${incident.service}-${incident.id.slice(0, 8)}.md` });
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Đã tải postmortem');
+    },
+  });
   const latest = inv.data?.items[0];
   return (
     <Sheet open onClose={onClose} wide title={<span className="flex items-center gap-2"><Siren className="size-4 text-danger" />{incident.service}</span>}
       footer={<>
         {incident.status === 'open' && <Button variant="outline" onClick={() => ack.mutate('ack')} disabled={ack.isPending}>Nhận xử lý</Button>}
         {incident.status !== 'resolved' && <Button variant="outline" onClick={() => ack.mutate('resolve')} disabled={ack.isPending}>Đóng sự cố</Button>}
+        <Button variant="outline" onClick={() => pm.mutate()} disabled={pm.isPending}><FileText className="size-4" />Postmortem</Button>
         <Button onClick={() => run.mutate()} disabled={run.isPending}><Bot className="size-4" />{run.isPending ? 'Đang điều tra…' : 'Tác tử điều tra'}</Button>
       </>}>
       <p className="mb-3 break-words text-sm">{incident.title}</p>
