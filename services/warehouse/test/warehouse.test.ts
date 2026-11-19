@@ -128,3 +128,37 @@ test('báo cáo nhập – xuất – tồn khớp thẻ kho; phí lưu kho tín
   assert.ok(fees[0].amount > 0 && fees[0].shopId === SHOP);
   assert.deepEqual(await withTx(pool, (c) => chargeStorage(c, period, 50)), []);
 });
+
+test('đề xuất nhập hàng: SES + tồn an toàn 95% + ROP + ABC từ thẻ kho', async () => {
+  const { abc, ses, std } = await import('../src/replenishment');
+  assert.equal(ses([10, 10, 10], 0.3), 10);
+  assert.ok(ses([0, 0, 0, 20, 20, 20], 0.3) > 10); // phản ứng với xu hướng tăng gần đây
+  assert.equal(std([5, 5, 5]), 0);
+  const cls = abc([{ key: 'a', value: 900 }, { key: 'b', value: 80 }, { key: 'c', value: 20 }]);
+  assert.deepEqual([cls.get('a'), cls.get('b'), cls.get('c')], ['A', 'B', 'C']);
+
+  const shop = newId();
+  const mk = async (sku: string, qty: number, cost: number) => {
+    const lot = newId();
+    await pool.query("INSERT INTO lots (id, warehouse, bin, shop_id, sku_id, qty, unit_cost) VALUES ($1,'HCM1','A-01-01',$2,$3,$4,$5)", [lot, shop, sku, qty, cost]);
+    return lot;
+  };
+  const hot = await mk('sku-ban-chay', 15, 100_000);
+  const cold = await mk('sku-ban-cham', 500, 10_000);
+  for (let d = 1; d <= 14; d++) {
+    await pool.query(`INSERT INTO stock_moves (at, type, lot_id, warehouse, bin, shop_id, sku_id, qty, unit_cost, ref_type, ref_id, actor)
+      VALUES (now() - make_interval(days => $1), 'ISSUE', $2, 'HCM1', 'A-01-01', $3, 'sku-ban-chay', $4, 100000, 'pick', 'seed', 'test')`, [d, hot, shop, 8 + (d % 3) * 2]);
+    if (d % 7 === 0) await pool.query(`INSERT INTO stock_moves (at, type, lot_id, warehouse, bin, shop_id, sku_id, qty, unit_cost, ref_type, ref_id, actor)
+      VALUES (now() - make_interval(days => $1), 'ISSUE', $2, 'HCM1', 'A-01-01', $3, 'sku-ban-cham', 1, 10000, 'pick', 'seed', 'test')`, [d, cold, shop]);
+  }
+  const r = (await call('GET', `/reports/replenishment?shopId=${shop}&leadTimeDays=7`, clerk)).json();
+  const h = r.items.find((i: { skuId: string }) => i.skuId === 'sku-ban-chay');
+  const c = r.items.find((i: { skuId: string }) => i.skuId === 'sku-ban-cham');
+  assert.equal(h.abc, 'A');
+  assert.equal(h.status, 'critical');
+  assert.ok(h.forecastPerDay > 3 && h.safetyStock > 0 && h.reorderPoint > h.available && h.suggestQty > 0);
+  assert.equal(c.status, 'ok');
+  assert.equal(c.suggestQty, 0);
+  assert.equal(r.items[0].skuId, 'sku-ban-chay'); // xếp mức khẩn trước
+  assert.equal((await call('GET', '/reports/replenishment', seller)).statusCode, 403);
+});

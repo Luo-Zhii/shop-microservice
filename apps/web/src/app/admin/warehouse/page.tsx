@@ -9,7 +9,42 @@ import { api, errorMessage } from '@/lib/api';
 import { formatDate, formatNumber, formatVND, type Tone } from '@/lib/format';
 import { toast } from '@/lib/toast';
 
-type Tab = 'receipts' | 'picks' | 'counts' | 'ledger';
+type Tab = 'receipts' | 'picks' | 'counts' | 'ledger' | 'replenish';
+interface Replenish { shopId: string; skuId: string; abc: 'A' | 'B' | 'C'; forecastPerDay: number; safetyStock: number; reorderPoint: number; available: number; daysOfCover: number | null; suggestQty: number; status: 'critical' | 'reorder' | 'ok' }
+const RS: Record<Replenish['status'], { label: string; tone: Tone }> = { critical: { label: 'Dưới tồn an toàn', tone: 'danger' }, reorder: { label: 'Cần đặt hàng', tone: 'warning' }, ok: { label: 'Đủ hàng', tone: 'success' } };
+
+function Replenishment() {
+  const [lead, setLead] = useState('7');
+  const q = useQuery({
+    queryKey: ['wh-replenish', lead],
+    queryFn: () => api.get<{ params: { days: number; serviceLevelZ: number }; items: Replenish[] }>('/warehouse/reports/replenishment', { leadTimeDays: Number(lead) || 7 }),
+  });
+  return (
+    <>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+        <Field label="Thời gian giao hàng của NCC (ngày)" htmlFor="lead" className="w-full sm:w-64 sm:shrink-0">
+          <Input id="lead" type="number" inputMode="numeric" min={1} max={90} value={lead} onChange={(e) => setLead(e.target.value)} />
+        </Field>
+        <p className="min-w-0 flex-1 text-sm text-muted">Dự báo làm mượt hàm mũ trên 28 ngày xuất kho · tồn an toàn mức phục vụ 95% · phân loại ABC theo giá trị xuất.</p>
+      </div>
+      <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có dữ liệu xuất kho để dự báo" />}>
+        {(d) => (
+          <DataTable rows={d.items} rowKey={(r) => `${r.shopId}-${r.skuId}`}
+            columns={[
+              { key: 'sku', header: 'SKU', primary: true, cell: (r) => <span className="font-mono text-sm break-all">{r.skuId}</span> },
+              { key: 'st', header: 'Tình trạng', badge: true, cell: (r) => <Badge tone={RS[r.status].tone}>{RS[r.status].label}</Badge> },
+              { key: 'abc', header: 'ABC', align: 'center', cell: (r) => <b>{r.abc}</b> },
+              { key: 'f', header: 'Dự báo/ngày', align: 'right', cell: (r) => formatNumber(r.forecastPerDay) },
+              { key: 'a', header: 'Khả dụng', align: 'right', cell: (r) => formatNumber(r.available) },
+              { key: 'cov', header: 'Đủ bán (ngày)', align: 'right', hideOnMobile: true, cell: (r) => (r.daysOfCover == null ? '—' : formatNumber(r.daysOfCover)) },
+              { key: 'ss', header: 'Tồn an toàn / ROP', align: 'right', hideOnMobile: true, cell: (r) => `${formatNumber(r.safetyStock)} / ${formatNumber(r.reorderPoint)}` },
+              { key: 'sg', header: 'Đề xuất nhập', align: 'right', cell: (r) => (r.suggestQty ? <b className="text-primary">{formatNumber(r.suggestQty)}</b> : '—') },
+            ]} />
+        )}
+      </QueryView>
+    </>
+  );
+}
 interface ReceiptLine { sku_id: string; qty_expected: number; qty_received: number | null; qty_damaged: number; unit_cost: number }
 interface Receipt { id: string; receipt_no: string; warehouse: string; shop_id: string; status: string; created_at: string; lines: ReceiptLine[] }
 interface Pick { id: string; order_id: string; status: string; short_reason: string | null; created_at: string; lines: { sku_id: string; bin: string; qty: number }[] | null }
@@ -26,7 +61,9 @@ export default function AdminWarehousePage() {
       <PageTitle>Kho sàn</PageTitle>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
         { value: 'receipts', label: 'Nhập kho' }, { value: 'picks', label: 'Lấy hàng' }, { value: 'counts', label: 'Kiểm kê' }, { value: 'ledger', label: 'Nhập – xuất – tồn' },
+        { value: 'replenish', label: 'Đề xuất nhập' },
       ]} />
+      {tab === 'replenish' && <Replenishment />}
       {tab === 'receipts' && <Receipts />}
       {tab === 'picks' && <Picks />}
       {tab === 'counts' && <Counts />}

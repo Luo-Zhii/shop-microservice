@@ -1,4 +1,5 @@
 import { notFound, requireUser, withTx, z, type Auth, type FastifyInstance, type Pool } from '@shopnow/platform';
+import { replenishment } from './replenishment';
 import {
   allocatePick, approveCount, chargeStorage, confirmPick, countSheet, createReceipt, receive, startCount, stockLedgerReport, submitCount,
 } from './stock';
@@ -94,6 +95,12 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     let bal = 0;
     return { skuId: req.params.skuId, items: rows.map((r) => ({ ...r, balance: (bal += ['RECEIPT', 'ADJUST_IN', 'TRANSFER_IN'].includes(r.type) ? r.qty : -r.qty) })) };
   });
+  app.get('/reports/replenishment', staff, async (req) => {
+    const q = z.object({ shopId: id.optional(), leadTimeDays: z.coerce.number().int().min(1).max(90).optional(),
+      reviewDays: z.coerce.number().int().min(1).max(60).optional(), days: z.coerce.number().int().min(7).max(180).optional() }).parse(req.query);
+    return replenishment(pool, q);
+  });
+  app.get('/seller/replenishment', seller, async (req) => replenishment(pool, { shopId: requireUser(req).shopId }));
   app.post<{ Params: { period: string } }>('/storage-fees/:period/charge', staff, async (req) => {
     const p = z.string().regex(/^\d{4}-\d{2}$/).parse(req.params.period);
     return { period: p, charged: await withTx(pool, (c) => chargeStorage(c, p, deps.storageRate)) };

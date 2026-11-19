@@ -31,13 +31,14 @@ const fixtures = [
   [/warehouse\/picks/, { items: [{ id: id(3), order_id: id(7), status: 'OPEN', short_reason: null, created_at: new Date().toISOString(), lines: [{ sku_id: 'sku-ao-thun-cotton-oversize', bin: 'A-01-01', qty: 10 }, { sku_id: 'sku-quan', bin: 'A-01-02', qty: 2 }] }] }],
   [/warehouse\/counts\/[^/]+\/sheet/, { items: [{ lot_id: id(4), bin: 'A-01-02', sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', counted_qty: null }] }],
   [/warehouse\/counts/, { items: [{ id: id(6), count_no: 'KK-00001', warehouse: 'HCM1', bin_prefix: 'A-01', status: 'SUBMITTED', variance_value: -890000, created_by: 'nhanvien.kho.ca.dem@shopnow.local', approved_by: null }] }],
+  [/warehouse\/reports\/replenishment/, { params: { days: 28, serviceLevelZ: 1.65 }, items: [{ shopId: id(5), skuId: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', abc: 'A', forecastPerDay: 12.34, safetyStock: 18, reorderPoint: 105, available: 6, daysOfCover: 0.5, suggestQty: 185, status: 'critical' }] }],
   [/warehouse\/reports\/stock-ledger/, { items: [{ shop_id: id(5), sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', opening_qty: 0, in_qty: 19, out_qty: 13, closing_qty: 6, closing_value: 540000 }] }],
 ];
 
 const PAGES = [
   ['/admin/aiops', async (p) => { await p.getByText('HighErrorRate').locator('visible=true').first().click(); await p.getByText('Các bước điều tra').waitFor({ timeout: 8000 }); }],
   ['/admin/accounting', null], ['/admin/accounting#journal', 'Nhật ký chung'], ['/admin/accounting#close', 'Khoá sổ & toàn vẹn'], ['/admin/accounting#audit', 'Kiểm toán AI'],
-  ['/admin/warehouse', null], ['/admin/warehouse#picks', 'Lấy hàng'], ['/admin/warehouse#counts', 'Kiểm kê'], ['/admin/warehouse#ledger', 'Nhập – xuất – tồn'],
+  ['/admin/warehouse', null], ['/admin/warehouse#picks', 'Lấy hàng'], ['/admin/warehouse#counts', 'Kiểm kê'], ['/admin/warehouse#ledger', 'Nhập – xuất – tồn'], ['/admin/warehouse#replenish', 'Đề xuất nhập'],
   ['/admin/warehouse#receive', async (p) => { await p.getByRole('button', { name: 'Nhận hàng' }).locator('visible=true').first().click(); await p.getByText('Xác nhận nhập kho').waitFor({ timeout: 8000 }); }],
 ];
 
