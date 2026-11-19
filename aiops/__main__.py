@@ -1,4 +1,4 @@
-"""python -m aiops [serve|detect-once]"""
+"""python -m aiops [serve|detect-once|mcp-stdio]"""
 
 import json
 import logging
@@ -27,8 +27,17 @@ def main(argv=None) -> None:
         engine, _ = build(s)
         snap = engine.run_once()
         print(json.dumps(snap.to_dict() if snap else {}, ensure_ascii=False, indent=2, default=str))
+    elif cmd == "mcp-stdio":
+        # cho Claude Code / IDE: claude mcp add shopnow-aiops -- python -m aiops mcp-stdio
+        from .api import build
+        from .config import load_settings
+        from .mcp.server import McpServer
+        from .mcp.tools import Toolbox
+
+        _, responder = build(load_settings())
+        McpServer(Toolbox(responder)).serve_stdio()
     else:
-        logging.error("lệnh không hỗ trợ: %s (serve | detect-once)", cmd)
+        logging.error("lệnh không hỗ trợ: %s (serve | detect-once | mcp-stdio)", cmd)
         sys.exit(2)
 
 

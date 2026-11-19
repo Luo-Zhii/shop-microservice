@@ -22,3 +22,11 @@ ACTIONS = Counter("aiops_actions_total", "Hành động khắc phục", ["action
 HTTP_DURATION = Histogram("http_server_requests_seconds", "Thời gian xử lý HTTP (RED)",
                           ["service", "method", "route", "status"],
                           buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10))
+AGENT_INVESTIGATIONS = Counter("aiops_agent_investigations_total", "Số lần tác tử điều tra hoàn tất", ["mode", "action"])
+AGENT_STEPS = Histogram("aiops_agent_tool_calls", "Số lần gọi công cụ mỗi lần điều tra", ["mode"],
+                        buckets=(1, 2, 4, 6, 8, 12, 16, 24))
+AGENT_COST_USD = Counter("aiops_agent_cost_usd_total", "Chi phí LLM cộng dồn (USD) — chia cho số điều tra = cost/task",
+                         ["mode"])
+GITOPS_PRS = Counter("aiops_gitops_prs_total", "PR khắc phục do tác tử đề xuất", ["action", "verdict"])
+MCP_CALLS = Counter("aiops_mcp_tool_calls_total", "Lệnh gọi công cụ qua MCP", ["tool", "ok"])
+LEDGER_FINDINGS = Counter("aiops_ledger_findings_total", "Phát hiện bất thường trên sổ cái kế toán", ["rule"])

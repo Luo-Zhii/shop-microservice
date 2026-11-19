@@ -7,11 +7,16 @@ POST /incidents/{id}/ack | /resolve | /fault-start {fault_start} | /feedback {ro
 GET|POST /actions/{id}/approve?token=…  |  /actions/{id}/reject?token=…   (token HMAC từ thông báo)
 GET  /anomalies                        snapshot điểm bất thường hiện tại
 POST /rca {scores?: {svc: điểm}}       chạy RCA theo yêu cầu
+POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LLM ReAct | planner), grounding + interlock
+GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
+POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
+POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -20,8 +25,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
+import httpx
 from . import __version__
 from .agent.executor import Executor
+from .agent.gitops_pr import GitHubGitOps, propose_pr
+from .agent.investigator import Investigator
 from .agent.kube import KubeBackend, KubeInspector, NullInspector, RecordingBackend
 from .agent.notifier import Notifier
 from .agent.responder import Responder
@@ -33,6 +41,7 @@ from .collectors.service_graph import build_graph
 from .config import Settings, load_settings
 from .engine import DetectorEngine
 from .llm.base import safe_build_provider
+from .mcp.server import McpServer
 from .metrics import HTTP_DURATION
 from .rca import rank_root_causes
 from .util import parse_ts
@@ -81,7 +90,18 @@ def build(settings: Settings, *, store=None, prom=None, loki=None, alerts=None, 
 
 def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     settings = settings or load_settings()
+    gitops = deps.pop("gitops", None)
     engine, responder = build(settings, **deps)
+    ag = settings.section("agent")
+    gcfg = ag.get("gitops") or {}
+    if gitops is None:
+        gitops = GitHubGitOps(os.getenv("GITOPS_REPO", gcfg.get("repo", "")), os.getenv("GITOPS_TOKEN") or None,
+                              gcfg.get("base", "main"))
+    icfg = ag.get("investigator") or {}
+    investigator = Investigator(responder, responder.llm, int(icfg.get("max_steps", 8)),
+                                price_per_mtok=float(icfg.get("price_per_mtok", 3.0)))
+    mcp = McpServer(investigator.tools)
+    mcp_token = os.getenv("MCP_TOKEN", "")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -203,6 +223,48 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return responder.evaluate_rca(incident_id, body.root_cause, body.source)
         except KeyError:
             return err(404, "NOT_FOUND", "không có sự cố")
+
+    # ---------------------------------------------------------------- tác tử điều tra (agentic RCA)
+    @app.post("/incidents/{incident_id}/agent-investigate")
+    def agent_investigate(incident_id: str, request: Request):
+        if responder.store.get_incident(incident_id) is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        inv = investigator.run(incident_id)
+        saved = responder.store.save_investigation(inv)
+        responder.store.audit(request.headers.get("x-actor", "api"), "agent_investigated", incident_id,
+                              details={"investigation": saved["id"], "mode": inv["mode"], "grounding": inv["grounding"],
+                                       "action": inv["remediation"]["action"]})
+        return to_api(saved)
+
+    @app.get("/incidents/{incident_id}/investigations")
+    def investigations(incident_id: str):
+        return {"items": [to_api(i) for i in responder.store.investigations_for(incident_id)]}
+
+    @app.post("/investigations/{investigation_id}/propose-pr")
+    def propose(investigation_id: str, request: Request):
+        inv = responder.store.get_investigation(investigation_id)
+        if inv is None:
+            return err(404, "NOT_FOUND", "không có bản điều tra")
+        gcfg_env = os.getenv("GITOPS_ENV", gcfg.get("env", "dev"))
+        ceiling = int((ag.get("interlock") or {}).get("max_replicas", 20))
+        try:
+            pr = propose_pr(inv, gitops, gcfg_env, ceiling)
+        except httpx.HTTPError as e:
+            return err(502, "UPSTREAM_ERROR", f"GitHub lỗi: {e}")
+        responder.store.update_investigation(investigation_id, pr=pr, updated_at=time.time())
+        responder.store.audit(request.headers.get("x-actor", "api"), "gitops_pr_" + pr["status"], inv["incident_id"],
+                              details={"investigation": investigation_id, **{k: pr.get(k) for k in ("url", "problems")}})
+        return pr
+
+    # ---------------------------------------------------------------- MCP (Streamable HTTP, JSON)
+    @app.post("/mcp")
+    async def mcp_endpoint(request: Request):
+        if mcp_token and request.headers.get("authorization") != f"Bearer {mcp_token}":
+            return err(401, "UNAUTHORIZED", "thiếu hoặc sai MCP token")
+        resp = mcp.handle_raw(await request.body())
+        if resp is None:
+            return PlainTextResponse("", status_code=202)
+        return JSONResponse(resp, headers={"MCP-Protocol-Version": "2025-06-18"})
 
     # ---------------------------------------------------------------- duyệt
     def _decide(action_id: str, decision: str, token: str | None, request: Request):

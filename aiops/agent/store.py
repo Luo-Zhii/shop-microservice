@@ -21,10 +21,15 @@ DDL = [
         id TEXT PRIMARY KEY, incident_id TEXT, type TEXT, target TEXT, params TEXT, status TEXT, approval TEXT,
         rule TEXT, reason TEXT, result TEXT, created_at DOUBLE PRECISION, decided_at DOUBLE PRECISION,
         decided_by TEXT, executed_at DOUBLE PRECISION)""",
+    """CREATE TABLE IF NOT EXISTS investigations (
+        id TEXT PRIMARY KEY, incident_id TEXT, mode TEXT, steps TEXT, hypotheses TEXT, dropped_hypotheses TEXT,
+        remediation TEXT, evidence TEXT, grounding DOUBLE PRECISION, cost TEXT, pr TEXT, created_at DOUBLE PRECISION,
+        updated_at DOUBLE PRECISION)""",
+    "CREATE INDEX IF NOT EXISTS investigations_incident_idx ON investigations (incident_id)",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
-JSON_COLS = {"root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
+JSON_COLS = {"steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
 OPEN = ("open", "acknowledged", "mitigated")
@@ -156,6 +161,28 @@ class IncidentStore:
                                                  (incident_id,))]
 
     # ---- audit ----
+    def save_investigation(self, inv: dict) -> dict:
+        row = {k: inv.get(k) for k in ("incident_id", "mode", "steps", "hypotheses", "dropped_hypotheses", "remediation",
+                                       "evidence", "grounding", "cost", "pr")}
+        row["id"] = uuid7()
+        now = time.time()
+        row["created_at"] = row["updated_at"] = now
+        self._insert("investigations", row)
+        return self.get_investigation(row["id"])
+
+    def get_investigation(self, id_: str) -> dict | None:
+        rows = self._exec("SELECT * FROM investigations WHERE id = ?", (id_,))
+        return self._dec(rows[0]) if rows else None
+
+    def update_investigation(self, id_: str, **fields) -> dict | None:
+        self._update("investigations", id_, fields)
+        return self.get_investigation(id_)
+
+    def investigations_for(self, incident_id: str) -> list[dict]:
+        rows = self._exec("SELECT * FROM investigations WHERE incident_id = ? ORDER BY created_at DESC",
+                          (incident_id,))
+        return [self._dec(r) for r in rows]
+
     def audit(self, actor: str, event: str, incident_id: str | None = None, action_id: str | None = None,
               details: dict | None = None) -> dict:
         row = {"ts": time.time(), "actor": actor, "event": event, "incident_id": incident_id, "action_id": action_id,

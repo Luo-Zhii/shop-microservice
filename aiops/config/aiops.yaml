@@ -84,5 +84,16 @@ alerting:
 
 agent:
   deploy_lookback_minutes: 30
+  investigator: {max_steps: 8, price_per_mtok: 3.0}
+  # SafetyInterlock: giới hạn cứng trong code, không phụ thuộc prompt
+  interlock:
+    allow: [rollback, scale_up, restart, toggle_flag, notify]
+    max_replicas: 20
+    freeze_hours_utc: []          # vd [[13, 15]] = 20h-22h giờ VN (cao điểm flash sale)
+    protected: [payment]          # không tự đề xuất rollback/restart
+  gitops:
+    repo: Luo-Zhii/shop-gitops
+    base: main
+    env: dev
   dedup_minutes: 30
   approval_ttl_minutes: 120
