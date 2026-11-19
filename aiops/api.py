@@ -10,6 +10,7 @@ POST /rca {scores?: {svc: điểm}}       chạy RCA theo yêu cầu
 POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LLM ReAct | planner), grounding + interlock
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
+GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
 
@@ -91,6 +92,7 @@ def build(settings: Settings, *, store=None, prom=None, loki=None, alerts=None, 
 def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     settings = settings or load_settings()
     gitops = deps.pop("gitops", None)
+    deps_accounting_transport = deps.pop("accounting_transport", None)
     engine, responder = build(settings, **deps)
     ag = settings.section("agent")
     gcfg = ag.get("gitops") or {}
@@ -114,6 +116,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
     app = FastAPI(title="ShopNow AIOps", version=__version__, lifespan=lifespan)
     app.state.engine, app.state.responder = engine, responder
+    app.state.accounting_transport = deps_accounting_transport
     _setup_tracing(app)
 
     @app.middleware("http")
@@ -255,6 +258,18 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         responder.store.audit(request.headers.get("x-actor", "api"), "gitops_pr_" + pr["status"], inv["incident_id"],
                               details={"investigation": investigation_id, **{k: pr.get(k) for k in ("url", "problems")}})
         return pr
+
+    # ---------------------------------------------------------------- kiểm toán sổ cái
+    @app.get("/audit/ledger")
+    def audit_ledger():
+        from .audit.ledger import audit, fetch_entries
+
+        url, tok = os.getenv("ACCOUNTING_URL", "http://accounting:8115"), os.getenv("INTERNAL_TOKEN", "")
+        try:
+            entries = fetch_entries(url, tok, transport=app.state.accounting_transport)
+        except httpx.HTTPError as e:
+            return err(502, "UPSTREAM_ERROR", f"accounting lỗi: {e}")
+        return audit(entries)
 
     # ---------------------------------------------------------------- MCP (Streamable HTTP, JSON)
     @app.post("/mcp")
