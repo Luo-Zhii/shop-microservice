@@ -110,6 +110,20 @@ test('phí lưu kho từ warehouse trừ công nợ seller, tách VAT', async ()
     [['331', 110_000, 0], ['5113', 0, 100_000], ['33311', 0, 10_000]]);
 });
 
+test('tổng hợp GTGT: đầu ra − đầu vào được khấu trừ = phải nộp; khớp HĐĐT', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await call('POST', '/admin/journal', { date: today, voucherNo: 'HD-AWS-11', description: 'Hoá đơn dịch vụ cloud tháng',
+    lines: [{ account: '6427', debit: 2_000_000 }, { account: '1331', debit: 200_000 }, { account: '1121', credit: 2_200_000 }] });
+  assert.equal(r.statusCode, 201, r.body);
+  const v = (await call('GET', '/admin/vat-summary')).json();
+  assert.equal(v.outputVat, 4_545 + 10_000); // hoa hồng đơn VNPAY + phí lưu kho
+  assert.equal(v.inputVat, 200_000);
+  assert.equal(v.payable, 0);
+  assert.equal(v.carryForward, 200_000 - 14_545);
+  assert.equal(v.invoices.count, 1);
+  assert.equal(v.invoiceGap, 10_000); // phí lưu kho chưa xuất HĐ theo đơn
+});
+
 test('COD: ĐVVC thu hộ khi giao; hoàn tiền một phần nhiều lần không bị khử trùng nhầm', async () => {
   const o = order({ paymentMethod: 'COD' });
   assert.equal(await handleEvent(pool, createEvent('order.delivered', 'order', o.id, o), R, svc.log), true);

@@ -139,6 +139,33 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
       vatOutput: tb.rows.filter((r) => r.account === '33311').reduce((s, r) => s + r.credit - r.debit, 0) };
   });
 
+  /**
+   * Tổng hợp thuế GTGT theo kỳ (phương pháp khấu trừ): đầu ra = PS Có − PS Nợ TK 33311, đầu vào = PS Nợ − PS Có TK 1331,
+   * doanh thu chịu thuế = PS Có TK 511x. Số liệu để kế toán lập tờ khai — không thay thế phần mềm kê khai của cơ quan thuế.
+   */
+  app.get('/admin/vat-summary', acct, async (req) => {
+    const p = period.parse((req.query as { period?: string }).period ?? periodOf(today()));
+    const { rows } = await pool.query<{ account: string; d: number; c: number }>(
+      `SELECT CASE WHEN l.account LIKE '511%' THEN '511' ELSE l.account END AS account,
+              SUM(l.debit)::bigint AS d, SUM(l.credit)::bigint AS c
+         FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+        WHERE e.period = $1 AND (l.account IN ('33311','1331') OR l.account LIKE '511%') GROUP BY 1`, [p]);
+    const by = Object.fromEntries(rows.map((r) => [r.account, { d: Number(r.d), c: Number(r.c) }]));
+    const outVat = (by['33311']?.c ?? 0) - (by['33311']?.d ?? 0);
+    const inVat = (by['1331']?.d ?? 0) - (by['1331']?.c ?? 0);
+    const sales = (by['511']?.c ?? 0) - (by['511']?.d ?? 0);
+    const inv = await pool.query<{ n: number; total: number }>(
+      "SELECT count(*)::int AS n, COALESCE(SUM(vat_amount),0)::bigint AS total FROM vat_invoices WHERE status = 'ISSUED' AND to_char(issue_date, 'YYYY-MM') = $1", [p]);
+    const diff = outVat - inVat;
+    return {
+      period: p, taxableSales: sales, outputVat: outVat, inputVat: inVat,
+      payable: Math.max(0, diff), carryForward: Math.max(0, -diff),
+      invoices: { count: inv.rows[0].n, vat: Number(inv.rows[0].total) },
+      // HĐĐT đã phát hành phải khớp thuế đầu ra từ hoa hồng; lệch = phí lưu kho (không xuất HĐ theo đơn) hoặc sai sót
+      invoiceGap: outVat - Number(inv.rows[0].total),
+    };
+  });
+
   app.get('/admin/invoices', acct, async (req) => {
     const q = req.query as { shopId?: string; page?: string; pageSize?: string };
     const { limit, offset } = parsePage(q);

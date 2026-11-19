@@ -47,6 +47,7 @@ export default function AdminAccountingPage() {
 
 function TrialBalance({ period }: { period: string }) {
   const q = useQuery({ queryKey: ['acc-trial', period], queryFn: () => api.get<Trial>('/accounting/admin/trial-balance', { period }) });
+  const vat = useQuery({ queryKey: ['acc-vat', period], queryFn: () => api.get<{ outputVat: number; inputVat: number; payable: number; carryForward: number; invoices: { count: number }; invoiceGap: number }>('/accounting/admin/vat-summary', { period }) });
   const pnl = useQuery({ queryKey: ['acc-pnl', period], queryFn: () => api.get<{ revenue: number; expense: number; profit: number; vatOutput: number }>('/accounting/admin/pnl', { period }) });
   return (
     <QueryView q={q} isEmpty={(d) => !d.rows.length} empty={<EmptyState icon={<BookOpen className="size-6" />} title="Kỳ chưa có phát sinh" />}>
@@ -58,6 +59,16 @@ function TrialBalance({ period }: { period: string }) {
             <Stat label="Lợi nhuận" value={formatVND(pnl.data?.profit ?? 0)} tone={(pnl.data?.profit ?? 0) < 0 ? 'danger' : 'success'} />
             <Stat label="VAT đầu ra" value={formatVND(pnl.data?.vatOutput ?? 0)} />
           </div>
+          {vat.data && (
+            <Card className="mb-4 flex flex-col gap-1.5 p-3 text-sm sm:flex-row sm:flex-wrap sm:gap-x-6">
+              <span>GTGT đầu ra <b>{formatVND(vat.data.outputVat)}</b></span>
+              <span>Đầu vào được khấu trừ <b>{formatVND(vat.data.inputVat)}</b></span>
+              {vat.data.payable > 0
+                ? <span>Phải nộp <b className="text-danger">{formatVND(vat.data.payable)}</b></span>
+                : <span>Khấu trừ chuyển kỳ sau <b className="text-success">{formatVND(vat.data.carryForward)}</b></span>}
+              <span className="text-muted">HĐĐT đã phát hành: {vat.data.invoices.count} · lệch so với đầu ra {formatVND(vat.data.invoiceGap)}</span>
+            </Card>
+          )}
           <DataTable rows={d.rows} rowKey={(r) => r.account}
             columns={[
               { key: 'acc', header: 'Tài khoản', primary: true, cell: (r) => <span><span className="font-mono">{r.account}</span> · {r.name}</span> },
