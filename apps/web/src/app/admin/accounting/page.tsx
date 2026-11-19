@@ -29,7 +29,7 @@ export default function AdminAccountingPage() {
   const [period, setPeriod] = useState(thisMonth());
   return (
     <div>
-      <PageTitle actions={<Field label="Kỳ" htmlFor="period" className="w-40"><Input id="period" type="month" value={period} onChange={(e) => setPeriod(e.target.value || thisMonth())} /></Field>}>
+      <PageTitle actions={<Field label="Kỳ" htmlFor="period" className="w-48 max-w-full"><Input id="period" type="month" value={period} onChange={(e) => setPeriod(e.target.value || thisMonth())} /></Field>}>
         Kế toán
       </PageTitle>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
