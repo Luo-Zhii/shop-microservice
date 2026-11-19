@@ -11,6 +11,7 @@ import { localDate, postEntry, type EntryInput, type LineInput } from './ledger'
  *                                  + phát hành hoá đơn GTGT phí hoa hồng cho seller
  *   payment.refunded               Nợ 3388 / Có 1121             — trả lại người mua
  *   payout paid (seller rút tiền)  Nợ 331 seller / Có 1121
+ *   warehouse.storage_fee_charged  Nợ 331 seller / Có 5113 / Có 33311 — phí lưu kho sàn
  */
 export interface Rates {
   commissionRate: number;
@@ -71,6 +72,18 @@ export function linesFor(event: EventEnvelope<any>, r: Rates): { lines: LineInpu
         ],
       };
     }
+    case 'warehouse.storage_fee_charged': {
+      // phí lưu kho trừ vào công nợ seller, doanh thu dịch vụ kho (đã gồm VAT)
+      const vat = Math.round((d.amount * r.vatRate) / (1 + r.vatRate));
+      return {
+        description: `Phí lưu kho kỳ ${d.period} shop ${d.shopId} (${d.unitDays} đơn vị·ngày)`,
+        lines: [
+          { account: '331', debit: d.amount, partyType: 'shop', partyId: d.shopId },
+          { account: '5113', credit: d.amount - vat, partyType: 'shop', partyId: d.shopId, memo: `storage:${d.period}` },
+          { account: '33311', credit: vat, memo: `storage:${d.period}` },
+        ],
+      };
+    }
     default:
       return null;
   }
@@ -117,7 +130,7 @@ export async function handleEvent(pool: Pool, event: EventEnvelope<any>, r: Rate
 }
 
 export async function registerConsumers(bus: EventBus, pool: Pool, r: Rates, log: Logger) {
-  await bus.subscribe('accounting', [Topics.paymentEvent, Topics.order], async (event) => {
+  await bus.subscribe('accounting', [Topics.paymentEvent, Topics.order, Topics.warehouse], async (event) => {
     await handleEvent(pool, event as EventEnvelope<any>, r, log);
   });
 }

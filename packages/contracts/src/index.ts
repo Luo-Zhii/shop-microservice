@@ -12,6 +12,7 @@ export const Topics = {
   order: 'order.v1',
   shipping: 'shipping.v1',
   accounting: 'accounting.v1',
+  warehouse: 'warehouse.v1',
 } as const;
 export type Topic = (typeof Topics)[keyof typeof Topics];
 export const ALL_TOPICS: Topic[] = Object.values(Topics);

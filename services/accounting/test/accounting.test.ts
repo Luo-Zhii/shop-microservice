@@ -102,6 +102,14 @@ test('luồng VNPAY: thu tiền → quyết toán → hoá đơn → chi trả s
   assert.equal(pnl.vatOutput, 4_545);
 });
 
+test('phí lưu kho từ warehouse trừ công nợ seller, tách VAT', async () => {
+  const ev = createEvent('warehouse.storage_fee_charged', 'warehouse', `${SHOP}:2026-11`, { shopId: SHOP, period: '2026-11', unitDays: 2200, amount: 110_000 });
+  assert.equal(await handleEvent(pool, ev, R, svc.log), true);
+  const e = (await call('GET', '/admin/journal?source=kafka&q=lưu kho')).json().items[0];
+  assert.deepEqual(e.lines.map((l: { account: string; debit: number; credit: number }) => [l.account, l.debit, l.credit]),
+    [['331', 110_000, 0], ['5113', 0, 100_000], ['33311', 0, 10_000]]);
+});
+
 test('COD: ĐVVC thu hộ khi giao; hoàn tiền một phần nhiều lần không bị khử trùng nhầm', async () => {
   const o = order({ paymentMethod: 'COD' });
   assert.equal(await handleEvent(pool, createEvent('order.delivered', 'order', o.id, o), R, svc.log), true);

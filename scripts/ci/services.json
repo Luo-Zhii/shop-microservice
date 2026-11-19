@@ -1,5 +1,5 @@
 {
-  "node": ["api-gateway", "identity", "user-profile", "seller", "catalog", "search", "cart", "promotion", "order", "payment", "shipping", "review", "notification", "accounting"],
+  "node": ["api-gateway", "identity", "user-profile", "seller", "catalog", "search", "cart", "promotion", "order", "payment", "shipping", "review", "notification", "accounting", "warehouse"],
   "images": {
     "api-gateway": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=api-gateway", "paths": ["services/api-gateway/**"] },
     "identity": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=identity", "paths": ["services/identity/**"] },
@@ -13,6 +13,7 @@
     "payment": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=payment", "paths": ["services/payment/**"] },
     "shipping": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=shipping", "paths": ["services/shipping/**"] },
     "accounting": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=accounting", "paths": ["services/accounting/**"] },
+    "warehouse": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=warehouse", "paths": ["services/warehouse/**"] },
     "review": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=review", "paths": ["services/review/**"] },
     "notification": { "context": ".", "dockerfile": "deploy/docker/node-service.Dockerfile", "args": "SERVICE=notification", "paths": ["services/notification/**"] },
     "inventory": { "context": "services/inventory", "dockerfile": "services/inventory/Dockerfile", "args": "", "paths": ["services/inventory/**"] },

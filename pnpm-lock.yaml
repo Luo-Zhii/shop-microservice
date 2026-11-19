@@ -347,6 +347,18 @@ importers:
         specifier: ^5.4.2
         version: 5.11.1
 
+  services/warehouse:
+    dependencies:
+      '@shopnow/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@shopnow/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
+
   tests/e2e: {}
 
   tools/diagrams: {}

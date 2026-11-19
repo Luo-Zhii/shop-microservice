@@ -16,7 +16,7 @@ async function main() {
   const auth = createAuth({ jwksUrl: cfg.JWKS_URL, issuer: cfg.JWT_ISSUER, audience: cfg.JWT_AUDIENCE, internalToken: cfg.INTERNAL_TOKEN });
 
   const bus = new EventBus({ brokers: cfg.KAFKA_BROKERS, clientId: cfg.SERVICE_NAME, enabled: cfg.KAFKA_ENABLED, log });
-  await bus.ensureTopics([Topics.paymentEvent, Topics.order, Topics.accounting]);
+  await bus.ensureTopics([Topics.paymentEvent, Topics.order, Topics.warehouse, Topics.accounting]);
   const stopRelay = startOutboxRelay(pool, bus, log);
   await registerConsumers(bus, pool, {
     commissionRate: cfg.COMMISSION_RATE, vatRate: cfg.VAT_RATE, invoiceSeries: cfg.INVOICE_SERIES, tz: cfg.TIMEZONE,
