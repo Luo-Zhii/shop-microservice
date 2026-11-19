@@ -23,6 +23,9 @@ bất đồng bộ qua Kafka (mọi thay đổi trạng thái). Tài liệu này
 | review | 8112 | Node/TS | MongoDB | `review` |
 | notification | 8113 | Node/TS | MongoDB + SMTP | `notification` |
 | ai-service | 8114 | **Python** (FastAPI) | Postgres (pgvector tuỳ chọn) | `ai` |
+| accounting | 8115 | Node/TS | Postgres (sổ cái bất biến, chuỗi hash) | `accounting` |
+| warehouse | 8116 | Node/TS | Postgres (lô FIFO, thẻ kho bất biến) | `warehouse` |
+| aiops | 8120 | **Python** (FastAPI) | SQLite/Postgres | `aiops` |
 | web | 3000 | Next.js 15 | — | — |
 
 Mọi service đều có: `GET /healthz` (liveness), `GET /readyz` (readiness — kiểm tra DB/Kafka),
@@ -76,9 +79,11 @@ lỗi xử lý thử lại 3 lần với backoff rồi đẩy sang `<topic>.dlq`
 | `inventory.command.v1` | order | `inventory.reserve` `{reservationId:checkoutId,orderIds,items:[{skuId,qty}],ttlSeconds}`, `inventory.commit` `{reservationId}`, `inventory.release` `{reservationId,reason}`, `inventory.restock` `{reservationId,orderId,items,reason}` (hoàn kho sau khi đã commit: huỷ đơn CONFIRMED / trả hàng) | inventory |
 | `inventory.event.v1` | inventory | `inventory.reserved` `{reservationId,expiresAt}`, `inventory.reserve_failed` `{reservationId,reason,skuIds}`, `inventory.committed`, `inventory.released`, `inventory.expired` `{reservationId}`, `inventory.restocked` `{reservationId,orderId}`, `stock.changed` `{skuId,available}` | order, search |
 | `payment.command.v1` | order | `payment.request` `{checkoutId,buyerId,amount,method,orderIds,returnUrl}`, `payment.refund` `{checkoutId,orderId,amount,reason}` | payment |
-| `payment.event.v1` | payment | `payment.created` `{paymentId,checkoutId,method,redirectUrl?}`, `payment.succeeded` `{paymentId,checkoutId,amount}`, `payment.failed` `{paymentId,checkoutId,reason}`, `payment.refunded` `{checkoutId,orderId,amount}` | order, notification |
+| `payment.event.v1` | payment | `payment.created` `{paymentId,checkoutId,method,redirectUrl?}`, `payment.succeeded` `{paymentId,checkoutId,amount}`, `payment.failed` `{paymentId,checkoutId,reason}`, `payment.refunded` `{checkoutId,orderId,amount}` | order, notification, accounting |
 | `order.v1` | order | `order.created`, `order.confirmed`, `order.cancelled`, `order.shipped`, `order.delivered`, `order.completed`, `order.return_requested`, `order.returned` — data = OrderSnapshot (+`reason` khi huỷ) | cart (`order.created` → xoá món đã đặt), promotion, shipping (`order.confirmed`), payment (`order.completed` → ghi có ví seller, `order.cancelled` → hoàn tiền nếu đã trả), review (`order.completed`), notification, ai-service |
 | `shipping.v1` | shipping | `shipment.created` `{shipmentId,orderId,carrier,trackingCode,fee}`, `shipment.picked`, `shipment.in_transit`, `shipment.delivered`, `shipment.failed` — `{shipmentId,orderId,status,at}` | order, notification |
+| `accounting.v1` | accounting | `journal.posted` `{entryId,entryNo,period,total,eventType}` | aiops (kiểm toán), notification |
+| `warehouse.v1` | warehouse | `warehouse.stock_changed` `{shopId,skuId,on_hand,available,reason}`, `warehouse.picked` `{pickId,orderId,shopId,cogs}`, `warehouse.pick_short` `{orderId,shopId,reason}`, `warehouse.count_adjusted` `{countId,countNo,varianceValue,lines}`, `warehouse.storage_fee_charged` `{shopId,period,unitDays,amount}` | accounting (phí lưu kho), inventory, notification |
 
 ### Snapshot dùng chung
 

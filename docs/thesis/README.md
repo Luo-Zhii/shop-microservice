@@ -12,6 +12,7 @@ hybrid (on-premises và AWS).
 | 5. Kiểm thử | [05-kiem-thu.md](05-kiem-thu.md) · [test-report.md](test-report.md) | Chiến lược kiểm thử, ~110 test case + ma trận truy vết; **179/179 test tự động** |
 | 6. Thực nghiệm & đánh giá | [06-thuc-nghiem.md](06-thuc-nghiem.md) | Kiểm thử đồng thời, AIOps (F1, PA-F1, MTTD, RCA Top-k, MTTR ước lượng), DevSecOps, việc còn chờ cụm thật |
 | Kết luận | [07-ket-luan.md](07-ket-luan.md) | Kết quả so với mục tiêu, trả lời câu hỏi nghiên cứu, đóng góp, hạn chế, hướng phát triển |
+| Chương 8 — Mở rộng 2026 | [08-mo-rong-2026.md](08-mo-rong-2026.md) | AIOps tác tử qua MCP (grounding, interlock, PR GitOps có cổng xác minh), kế toán sổ cái kép bất biến, kho sàn FIFO/kiểm kê, kiểm toán Benford, SLSA/VEX/Scorecard, OpenCost |
 | Phụ lục | [../architecture.md](../architecture.md) | Hợp đồng API / sự kiện / saga giữa các service |
 
 ## Sơ đồ
