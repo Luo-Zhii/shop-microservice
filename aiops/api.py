@@ -13,6 +13,7 @@ GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng 
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
+GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
 
@@ -316,6 +317,23 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         except httpx.HTTPError as e:
             return err(502, "UPSTREAM_ERROR", f"accounting lỗi: {e}")
         return audit(entries)
+
+    # ---------------------------------------------------------------- bàn giao ca trực
+    @app.get("/reports/oncall-digest")
+    def oncall_digest(hours: int = Query(24, ge=1, le=168)):
+        from .agent.digest import build as build_digest
+
+        return build_digest(responder.store, responder.clock(), hours)
+
+    @app.post("/reports/oncall-digest/send")
+    def oncall_digest_send(request: Request, hours: int = Query(24, ge=1, le=168)):
+        """CronJob 8:30 sáng gọi để đẩy bản tin lên kênh trực (Telegram/Slack của Notifier)."""
+        if settings.webhook_token and request.headers.get("authorization") != f"Bearer {settings.webhook_token}":
+            return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
+        from .agent.digest import build as build_digest
+
+        d = build_digest(responder.store, responder.clock(), hours)
+        return {"sent": responder.notifier.notify("Bàn giao ca trực", d["markdown"]), **{k: d[k] for k in ("incidents", "attention")}}
 
     # ---------------------------------------------------------------- MCP (Streamable HTTP, JSON)
     @app.post("/mcp")

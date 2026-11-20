@@ -162,3 +162,18 @@ def test_topology_correlation_merges_adjacent_alerts_only(env):
     late = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("cart", fp="fp-cart-2")]}).json()["incidents"][0]
     assert late != first
     assert 'aiops_alerts_correlated_total{service="cart"} 1.0' in c.get("/metrics").text
+
+
+def test_oncall_digest(env):
+    c, sent, backend, clock, s = env
+    c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("catalog"), alert("cart")]})
+    c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("review")]})
+    clock.t += 5 * 3600
+    d = c.get("/reports/oncall-digest?hours=24").json()
+    assert d["incidents"]["new"] == 2 and d["incidents"]["open"] == 2
+    assert d["alerts_correlated"] == 1
+    assert any("chưa ai nhận" in a for a in d["attention"]) and any("chờ duyệt" in a for a in d["attention"])
+    assert "Bàn giao ca trực" in d["markdown"]
+    n = len(sent)
+    r = c.post("/reports/oncall-digest/send").json()
+    assert r["sent"][0]["channel"] == "telegram" and len(sent) == n + 1
