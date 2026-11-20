@@ -124,6 +124,24 @@ test('tổng hợp GTGT: đầu ra − đầu vào được khấu trừ = phả
   assert.equal(v.invoiceGap, 10_000); // phí lưu kho chưa xuất HĐ theo đơn
 });
 
+test('tuổi nợ phải trả seller: cấn trừ FIFO, xếp nhóm theo ngày, đánh dấu quá hạn', async () => {
+  const shop = newId();
+  const accrue = (date: string, ref: string, amount: number) => withTx(pool, (c) => postEntry(c, { date, source: 'manual', sourceRef: ref,
+    description: 'phải trả', createdBy: 't', lines: [{ account: '3388', debit: amount }, { account: '331', credit: amount, partyType: 'shop', partyId: shop }] }, date));
+  await accrue('2026-10-01', `AG-1-${shop}`, 100);
+  await accrue('2026-10-20', `AG-2-${shop}`, 200);
+  await accrue('2026-11-15', `AG-3-${shop}`, 300);
+  await withTx(pool, (c) => postEntry(c, { date: '2026-11-16', source: 'payout', sourceRef: `AG-P-${shop}`, description: 'chi', createdBy: 't',
+    lines: [{ account: '331', debit: 150, partyType: 'shop', partyId: shop }, { account: '1121', credit: 150 }] }, '2026-11-16'));
+  const r = (await call('GET', '/admin/payables/aging?asOf=2026-11-20')).json();
+  const it = r.items.find((i: { shopId: string }) => i.shopId === shop);
+  // 150 trả hết khoản 01/10 (100) và 50 của khoản 20/10 → còn 150 (31 ngày) + 300 (5 ngày)
+  assert.deepEqual(it.buckets, { '0-7': 300, '8-15': 0, '16-30': 0, '>30': 150 });
+  assert.equal(it.balance, 450);
+  assert.equal(it.oldestDays, 31);
+  assert.equal(it.overdue, 150);
+});
+
 test('COD: ĐVVC thu hộ khi giao; hoàn tiền một phần nhiều lần không bị khử trùng nhầm', async () => {
   const o = order({ paymentMethod: 'COD' });
   assert.equal(await handleEvent(pool, createEvent('order.delivered', 'order', o.id, o), R, svc.log), true);

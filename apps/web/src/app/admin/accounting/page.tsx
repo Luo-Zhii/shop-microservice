@@ -33,7 +33,7 @@ export default function AdminAccountingPage() {
         Kế toán
       </PageTitle>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
-        { value: 'trial', label: 'Cân đối số phát sinh' }, { value: 'journal', label: 'Nhật ký chung' }, { value: 'payables', label: 'Công nợ seller' },
+        { value: 'trial', label: 'Cân đối số phát sinh' }, { value: 'journal', label: 'Nhật ký chung' }, { value: 'payables', label: 'Tuổi nợ seller' },
         { value: 'close', label: 'Khoá sổ & toàn vẹn' }, { value: 'audit', label: 'Kiểm toán AI' },
       ]} />
       {tab === 'trial' && <TrialBalance period={period} />}
@@ -137,18 +137,31 @@ function Journal({ period }: { period: string }) {
   );
 }
 
+interface Aging { shopId: string; balance: number; buckets: Record<'0-7' | '8-15' | '16-30' | '>30', number>; oldestDays: number | null; overdue: number }
+
 function Payables() {
-  const q = useQuery({ queryKey: ['acc-payables'], queryFn: () => api.get<{ items: { shopId: string; accrued: number; paid: number; balance: number }[] }>('/accounting/admin/payables') });
+  const q = useQuery({ queryKey: ['acc-aging'], queryFn: () => api.get<{ asOf: string; overdueDays: number; totals: Record<string, number>; items: Aging[] }>('/accounting/admin/payables/aging') });
   return (
     <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có công nợ seller" />}>
       {(d) => (
-        <DataTable rows={d.items} rowKey={(r) => r.shopId}
-          columns={[
-            { key: 'shop', header: 'Shop', primary: true, cell: (r) => <span className="font-mono text-xs break-all">{r.shopId}</span> },
-            { key: 'acc', header: 'Phải trả luỹ kế', align: 'right', cell: (r) => formatVND(r.accrued) },
-            { key: 'paid', header: 'Đã chi trả', align: 'right', cell: (r) => formatVND(r.paid) },
-            { key: 'bal', header: 'Còn phải trả', align: 'right', cell: (r) => <span className="font-semibold">{formatVND(r.balance)}</span> },
-          ]} />
+        <>
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {(['0-7', '8-15', '16-30', '>30'] as const).map((b) => (
+              <Stat key={b} label={`${b} ngày`} value={formatVND(d.totals[b] ?? 0)} tone={b === '>30' && d.totals[b] ? 'danger' : undefined} />
+            ))}
+          </div>
+          <DataTable rows={d.items} rowKey={(r) => r.shopId}
+            columns={[
+              { key: 'shop', header: 'Shop', primary: true, cell: (r) => <span className="font-mono text-xs break-all">{r.shopId}</span> },
+              { key: 'st', header: 'Quá hạn', badge: true, cell: (r) => (r.overdue ? <Badge tone="danger">Quá {d.overdueDays} ngày</Badge> : <Badge tone="success">Trong hạn</Badge>) },
+              { key: 'bal', header: 'Còn phải trả', align: 'right', cell: (r) => <b>{formatVND(r.balance)}</b> },
+              { key: 'b1', header: '0–7', align: 'right', hideOnMobile: true, cell: (r) => money(r.buckets['0-7']) },
+              { key: 'b2', header: '8–15', align: 'right', hideOnMobile: true, cell: (r) => money(r.buckets['8-15']) },
+              { key: 'b3', header: '16–30', align: 'right', hideOnMobile: true, cell: (r) => money(r.buckets['16-30']) },
+              { key: 'b4', header: '>30', align: 'right', cell: (r) => (r.buckets['>30'] ? <span className="text-danger">{formatVND(r.buckets['>30'])}</span> : '—') },
+              { key: 'old', header: 'Khoản cũ nhất', align: 'right', cell: (r) => (r.oldestDays == null ? '—' : `${r.oldestDays} ngày`) },
+            ]} />
+        </>
       )}
     </QueryView>
   );

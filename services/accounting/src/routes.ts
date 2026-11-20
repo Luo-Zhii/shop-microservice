@@ -127,6 +127,47 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     return { items: rows.map((r) => ({ shopId: r.shop_id, accrued: Number(r.credit), paid: Number(r.debit), balance: Number(r.credit) - Number(r.debit) })) };
   });
 
+  /**
+   * Tuổi nợ phải trả seller (TK 331) tại ngày asOf: khoản đã chi / bị trừ (Nợ) cấn trừ FIFO vào khoản phải trả cũ nhất (Có),
+   * phần còn lại xếp nhóm 0–7 / 8–15 / 16–30 / >30 ngày. Nợ quá hạn đối soát (mặc định > 15 ngày) bị đánh dấu.
+   */
+  app.get('/admin/payables/aging', acct, async (req) => {
+    const q = z.object({ asOf: z.string().date().optional(), overdueDays: z.coerce.number().int().min(1).max(365).default(15) }).parse(req.query);
+    const asOf = q.asOf ?? today();
+    const { rows } = await pool.query<{ shop_id: string; entry_date: string; debit: number; credit: number }>(
+      `SELECT l.party_id AS shop_id, e.entry_date, l.debit, l.credit FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+        WHERE l.account = '331' AND l.party_type = 'shop' AND e.entry_date <= $1 ORDER BY l.party_id, e.entry_date, e.seq`, [asOf]);
+    const BUCKETS = ['0-7', '8-15', '16-30', '>30'] as const;
+    const byShop = new Map<string, { open: { date: string; amount: number }[]; paid: number }>();
+    for (const r of rows) {
+      const s = byShop.get(r.shop_id) ?? { open: [], paid: 0 };
+      if (Number(r.credit)) s.open.push({ date: String(r.entry_date), amount: Number(r.credit) });
+      s.paid += Number(r.debit);
+      byShop.set(r.shop_id, s);
+    }
+    const day = 86_400_000;
+    const items = [...byShop.entries()].map(([shopId, s]) => {
+      let paid = s.paid;
+      const buckets: Record<(typeof BUCKETS)[number], number> = { '0-7': 0, '8-15': 0, '16-30': 0, '>30': 0 };
+      let oldest: number | null = null;
+      let overdue = 0;
+      for (const o of s.open) {
+        const used = Math.min(paid, o.amount);
+        paid -= used;
+        const left = o.amount - used;
+        if (left <= 0) continue;
+        const age = Math.floor((Date.parse(asOf) - Date.parse(o.date)) / day);
+        oldest = oldest == null ? age : Math.max(oldest, age);
+        if (age > q.overdueDays) overdue += left;
+        buckets[age <= 7 ? '0-7' : age <= 15 ? '8-15' : age <= 30 ? '16-30' : '>30'] += left;
+      }
+      const balance = Object.values(buckets).reduce((a, b) => a + b, 0);
+      return { shopId, balance, buckets, oldestDays: oldest, overdue, prepaid: paid };
+    }).filter((i) => i.balance > 0 || i.prepaid > 0).sort((a, b) => b.overdue - a.overdue || b.balance - a.balance);
+    const totals = Object.fromEntries(BUCKETS.map((b) => [b, items.reduce((s, i) => s + i.buckets[b], 0)]));
+    return { asOf, overdueDays: q.overdueDays, totals, items };
+  });
+
   /** Kết quả kinh doanh rút gọn: doanh thu (5xx) − chi phí (6xx, 8xx). */
   app.get('/admin/pnl', acct, async (req) => {
     const p = period.parse((req.query as { period?: string }).period ?? periodOf(today()));

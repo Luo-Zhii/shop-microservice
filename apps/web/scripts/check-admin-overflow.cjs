@@ -29,6 +29,7 @@ const fixtures = [
   [/accounting\/admin\/vat-summary/, { outputVat: 1234567890, inputVat: 987654321, payable: 246913569, carryForward: 0, invoices: { count: 12345 }, invoiceGap: 10000 }],
   [/accounting\/admin\/pnl/, { revenue: 45455000, expense: 1200000, profit: 44255000, vatOutput: 4545000 }],
   [/accounting\/admin\/journal/, { total: 2, items: [{ id: id(1), entry_no: 'BT-202611-000123', entry_date: '2026-11-20', period: '2026-11', source: 'kafka', description: 'Quyết toán đơn 01934f6e-aaaa-7bbb-8ccc-000000000001: seller 950000, hoa hồng 50000, ship 30000', created_by: 'event:order', total: 1030000, reversed_by: null, reversal_of: null, hash: 'a'.repeat(64), lines }] }],
+  [/accounting\/admin\/payables\/aging/, { asOf: '2026-11-20', overdueDays: 15, totals: { '0-7': 300000000, '8-15': 0, '16-30': 0, '>30': 150000000 }, items: [{ shopId: id(5), balance: 450000000, buckets: { '0-7': 300000000, '8-15': 0, '16-30': 0, '>30': 150000000 }, oldestDays: 31, overdue: 150000000 }] }],
   [/accounting\/admin\/payables/, { items: [{ shopId: id(5), accrued: 950000000, paid: 900000000, balance: 50000000 }] }],
   [/accounting\/admin\/periods/, { items: [{ period: '2026-10', status: 'OPEN', closed_at: null, closed_by: null, closing_hash: null }, { period: '2026-09', status: 'CLOSED', closed_at: new Date().toISOString(), closed_by: 'ketoan.truong@shopnow.local', closing_hash: 'b'.repeat(64) }] }],
   [/accounting\/admin\/integrity/, { ok: false, entries: 120, head: 'c'.repeat(64), problems: [{ entryNo: 'BT-202611-000001', problem: 'nội dung bị sửa (hash không khớp)' }] }],
@@ -44,7 +45,7 @@ const PAGES = [
   ['/seller/statement', null], ['/seller/fulfillment', null],
   ['/seller/fulfillment#asn', async (p) => { await p.getByRole('button', { name: 'Báo gửi hàng' }).locator('visible=true').first().click(); await p.getByText('Thêm dòng').waitFor({ timeout: 8000 }); }],
   ['/admin/aiops', async (p) => { await p.getByText('HighErrorRate').locator('visible=true').first().click(); await p.getByText('Các bước điều tra').waitFor({ timeout: 8000 }); }],
-  ['/admin/accounting', null], ['/admin/accounting#journal', 'Nhật ký chung'], ['/admin/accounting#close', 'Khoá sổ & toàn vẹn'], ['/admin/accounting#audit', 'Kiểm toán AI'],
+  ['/admin/accounting', null], ['/admin/accounting#journal', 'Nhật ký chung'], ['/admin/accounting#payables', 'Tuổi nợ seller'], ['/admin/accounting#close', 'Khoá sổ & toàn vẹn'], ['/admin/accounting#audit', 'Kiểm toán AI'],
   ['/admin/warehouse', null], ['/admin/warehouse#picks', 'Lấy hàng'], ['/admin/warehouse#counts', 'Kiểm kê'], ['/admin/warehouse#ledger', 'Nhập – xuất – tồn'], ['/admin/warehouse#replenish', 'Đề xuất nhập'],
   ['/admin/warehouse#receive', async (p) => { await p.getByRole('button', { name: 'Nhận hàng' }).locator('visible=true').first().click(); await p.getByText('Xác nhận nhập kho').waitFor({ timeout: 8000 }); }],
 ];
