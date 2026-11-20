@@ -13,6 +13,7 @@ GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng 
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
+GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
 GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
@@ -31,6 +32,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
 
 import httpx
+import numpy as np
 from . import __version__
 from .agent.executor import Executor
 from .agent.gitops_pr import GitHubGitOps, propose_pr
@@ -341,6 +343,32 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         except Exception as e:  # noqa: BLE001
             log.warning("platform summary error budget lỗi: %s", e)
         return out
+
+    # ---------------------------------------------------------------- dự báo dung lượng (predictive autoscaling)
+    @app.get("/capacity/forecast")
+    def capacity_forecast(hours: float = Query(1.0, gt=0, le=6)):
+        from .capacity import forecast, recommend
+        from .metrics import FORECAST_RPS, FORECAST_REPLICAS
+
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        cap = settings.raw.get("capacity") or {}
+        step, now = int(cap.get("step_seconds", 900)), responder.clock()
+        _, series = responder.prom.range_by_label(
+            "sum by (service) (rate(http_server_requests_seconds_count[5m]))", now - int(cap.get("lookback_days", 8)) * 86400, now, step)
+        out = []
+        for svc, arr in sorted(series.items()):
+            if np.count_nonzero(~np.isnan(arr)) < 24:
+                continue
+            fc = forecast(arr, step, int(hours * 3600))
+            sv = (cap.get("services") or {}).get(svc) or {}
+            rpp = float(sv.get("rps_per_pod", cap.get("default_rps_per_pod", 50)))
+            rep = recommend(fc["peak"], fc["rmse"], rpp, int(sv.get("min", 2)), int(sv.get("max", 10)), float(cap.get("headroom", 0.3)))
+            FORECAST_RPS.labels(svc).set(fc["peak"])
+            FORECAST_REPLICAS.labels(svc).set(rep)
+            out.append({"service": svc, **{k: fc[k] for k in ("model", "current", "peak", "rmse")}, "rps_per_pod": rpp,
+                        "recommended_min_replicas": rep, "scale_up_ahead": fc["peak"] > fc["current"] * 1.3})
+        return {"horizon_hours": hours, "step_seconds": step, "items": out}
 
     # ---------------------------------------------------------------- bàn giao ca trực
     @app.get("/reports/oncall-digest")

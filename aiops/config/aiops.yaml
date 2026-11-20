@@ -133,3 +133,15 @@ error_budget:
     checkout-latency: [order, payment, inventory, cart, api-gateway]
     order-saga-success: [order, payment, inventory]
     web-lcp-good: [web, api-gateway]
+
+# Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
+capacity:
+  step_seconds: 900
+  lookback_days: 8
+  headroom: 0.3
+  default_rps_per_pod: 50
+  services:
+    api-gateway: {rps_per_pod: 150, min: 2, max: 12}   # khớp keda.rpsPerPod của chart
+    catalog: {rps_per_pod: 100, min: 2, max: 10}
+    search: {rps_per_pod: 80, min: 2, max: 10}
+    order: {rps_per_pod: 40, min: 2, max: 8}

@@ -31,3 +31,5 @@ GITOPS_PRS = Counter("aiops_gitops_prs_total", "PR khắc phục do tác tử đ
 MCP_CALLS = Counter("aiops_mcp_tool_calls_total", "Lệnh gọi công cụ qua MCP", ["tool", "ok"])
 LEDGER_FINDINGS = Counter("aiops_ledger_findings_total", "Phát hiện bất thường trên sổ cái kế toán", ["rule"])
 CORRELATED = Counter("aiops_alerts_correlated_total", "Alert gộp vào sự cố của service liền kề (giảm bão cảnh báo)", ["service"])
+FORECAST_RPS = Gauge("aiops_forecast_rps", "Đỉnh rps dự báo trong horizon (Holt-Winters) — KEDA dùng để scale trước", ["service"])
+FORECAST_REPLICAS = Gauge("aiops_forecast_replicas", "Số replica tối thiểu đề xuất theo dự báo", ["service"])
