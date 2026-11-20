@@ -290,7 +290,20 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         ch = Change(files, **({"when": when} if when else {}))
         since = responder.clock() - 30 * 86400
         ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
-        return {"services": ch.services(), "incidents_30d": ch.incidents_30d, **score(ch.features())}
+        budget = {}
+        if responder.prom is not None:
+            slos = (settings.raw.get("error_budget") or {}).get("slos") or {}
+            try:
+                remaining = {r["metric"].get("sloth_slo"): float(r["value"][1])
+                             for r in responder.prom.query("slo:period_error_budget_remaining:ratio")}
+            except Exception as e:  # noqa: BLE001 - Prometheus lỗi thì chấm không có chính sách budget
+                log.warning("đọc error budget lỗi: %s", e)
+                remaining = {}
+            for slo, svcs in slos.items():
+                for s in set(svcs) & set(ch.services()):
+                    if slo in remaining:
+                        budget[s] = min(budget.get(s, 1.0), remaining[slo])
+        return {"services": ch.services(), "incidents_30d": ch.incidents_30d, **score(ch.features(), budget=budget or None)}
 
     # ---------------------------------------------------------------- kiểm toán sổ cái
     @app.get("/audit/ledger")

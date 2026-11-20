@@ -108,3 +108,11 @@ agent:
     env: dev
   dedup_minutes: 30
   approval_ttl_minutes: 120
+
+# Chính sách error budget (Google SRE) cho /change-risk: SLO Sloth → service bị ràng buộc.
+error_budget:
+  slos:
+    gateway-availability: [api-gateway]
+    checkout-latency: [order, payment, inventory, cart, api-gateway]
+    order-saga-success: [order, payment, inventory]
+    web-lcp-good: [web, api-gateway]

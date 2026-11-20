@@ -75,16 +75,27 @@ class Change:
         }
 
 
-def score(x: dict[str, float], w: dict[str, float] | None = None) -> dict:
+def score(x: dict[str, float], w: dict[str, float] | None = None, budget: dict[str, float] | None = None) -> dict:
+    """`budget` = {service: tỉ lệ error budget còn lại của SLO} — chính sách error budget (Google SRE) ghi đè mức rủi ro."""
     w = w or PRIOR
     contrib = {k: round(w[k] * x[k], 3) for k in FEATURES}
     z = w["bias"] + sum(contrib.values())
     p = 1 / (1 + math.exp(-z))
     level = "low" if p < 0.2 else "medium" if p < 0.5 else "high"
     top = sorted(((k, v) for k, v in contrib.items() if v > 0), key=lambda kv: -kv[1])
+    reasons = [f"{LABEL_VI[k]} (+{v})" for k, v in top[:4]]
+    policy = None
+    if budget:
+        svc, rem = min(budget.items(), key=lambda kv: kv[1])
+        if rem <= 0:
+            level, policy = "high", f"{svc} đã hết error budget ({rem:.0%}) — đóng băng thay đổi không khẩn cấp, chỉ cho bản vá độ tin cậy"
+        elif rem < 0.25 and level == "low":
+            level, policy = "medium", f"{svc} còn {rem:.0%} error budget — triển khai chậm hơn"
+        if policy:
+            reasons.insert(0, policy)
     return {"probability": round(p, 3), "level": level, "features": {k: round(v, 3) for k, v in x.items()},
-            "contributions": dict(top), "rollout": ROLLOUT[level],
-            "reasons": [f"{LABEL_VI[k]} (+{v})" for k, v in top[:4]]}
+            "contributions": dict(top), "rollout": ROLLOUT[level], "reasons": reasons,
+            "error_budget": budget or {}, "policy": policy}
 
 
 def fit(X: list[dict[str, float]], y: list[int], l2: float = 0.1, lr: float = 0.3, epochs: int = 2000) -> dict[str, float]:
@@ -113,6 +124,8 @@ def markdown(r: dict, services: list[str]) -> str:
     ro = r["rollout"]
     lines = [f"### {icon} Rủi ro thay đổi: **{r['level']}** (xác suất gây sự cố ≈ {r['probability']:.0%})", "",
              f"Service bị chạm: {', '.join(f'`{s}`' for s in services) or '—'}", ""]
+    if r.get("policy"):
+        lines += [f"> ⛔ **Chính sách error budget:** {r['policy']}", ""]
     lines += ["| Yếu tố | Đóng góp |", "|---|---|"] + [f"| {LABEL_VI[k]} | +{v} |" for k, v in r["contributions"].items()]
     lines += ["", f"**Canary đề xuất:** {' → '.join(f'{s}%' for s in ro['steps'])}, nghỉ {ro['pause_minutes']} phút/bước, "
               f"duyệt {'thủ công' if ro['approval'] == 'manual' else 'tự động'}.",
