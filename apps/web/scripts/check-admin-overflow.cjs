@@ -22,6 +22,8 @@ const fixtures = [
   [/warehouse\/seller\/stock/, { items: [{ sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', warehouse: 'HCM1', on_hand: 7, available: 6, quarantined: 1 }] }],
   [/identity\/auth\/refresh/, { accessToken: jwt, refreshToken: 'rt' }],
   [/identity\/(users\/)?me/, { id: 'u-admin', email: 'admin@shopnow.local', fullName: 'Quản trị', roles: ['admin'] }],
+  [/aiops\/platform\/summary/, { incidents_open: 3, cost_per_order_usd: 0.0123, lcp_p75_s: 3.1, error_budget: { 'order-saga-success': -0.05, 'web-lcp-good': 0.42 }, prometheus: true }],
+  [/order\/admin\/stats/, { gmv: 123456789000, orders: 45678, revenue: 98765432100, byStatus: { COMPLETED: 40000, CANCELLED: 1200 } }],
   [/aiops\/incidents\/[^/]+\/investigations/, { items: [inv] }],
   [/aiops\/incidents/, { items: Array.from({ length: 4 }, (_, i) => ({ id: id(i), service: 'catalog-very-long-service-name', severity: 'critical', status: 'open', title: 'HighErrorRate — catalog lỗi 5xx tăng đột biến sau khi triển khai phiên bản mới lúc cao điểm', summary: 'Tóm tắt', detected_at: new Date().toISOString(), root_causes: [{ service: 'catalog', score: 0.9 }] })) }],
   [/aiops\/audit\/ledger/, { entries: 1234, findings: [{ rule: 'duplicate', severity: 'high', entry_no: 'BT-202611-000902', detail: 'trùng số tiền/đối tượng với BT-202611-000901 trong 24h (331 01934f6e-aaaa-7bbb-8ccc-000000000001)' }], benford: { n: 900, mad: 0.0041, conformity: 'close', observed: { 1: 0.3, 2: 0.18, 3: 0.12, 4: 0.1, 5: 0.08, 6: 0.07, 7: 0.06, 8: 0.05, 9: 0.04 }, expected: { 1: 0.301, 2: 0.176, 3: 0.125, 4: 0.097, 5: 0.079, 6: 0.067, 7: 0.058, 8: 0.051, 9: 0.046 } } }],
@@ -44,6 +46,7 @@ const fixtures = [
 ];
 
 const PAGES = [
+  ['/admin', null],
   ['/seller/statement', null], ['/seller/fulfillment', null],
   ['/seller/fulfillment#asn', async (p) => { await p.getByRole('button', { name: 'Báo gửi hàng' }).locator('visible=true').first().click(); await p.getByText('Thêm dòng').waitFor({ timeout: 8000 }); }],
   ['/admin/aiops', async (p) => { await p.getByText('HighErrorRate').locator('visible=true').first().click(); await p.getByText('Các bước điều tra').waitFor({ timeout: 8000 }); }],

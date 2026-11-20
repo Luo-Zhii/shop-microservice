@@ -1,10 +1,10 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Ban, ClipboardList, DollarSign, PackageCheck } from 'lucide-react';
+import { ArrowRight, Ban, ClipboardList, Coins, DollarSign, Gauge, PackageCheck, ShieldCheck, Siren } from 'lucide-react';
 import { BarChart } from '@/components/bar-chart';
 import { StatCard } from '@/components/dash-shell';
-import { Badge, Card, PageTitle, QueryView, Skeleton } from '@/components/ui';
+import { Badge, Card, LinkButton, PageTitle, QueryView, SectionTitle, Skeleton } from '@/components/ui';
 import { api } from '@/lib/api';
 import { ORDER_STATUS, formatNumber, formatVND, pick, statusOf } from '@/lib/format';
 import { normalizeStats } from '@/lib/stats';
@@ -43,6 +43,37 @@ export default function AdminDashboard() {
           );
         }}
       </QueryView>
+      <PlatformHealth />
     </div>
+  );
+}
+
+interface PlatformSummary { incidents_open: number; cost_per_order_usd: number | null; lcp_p75_s: number | null; error_budget: Record<string, number>; prometheus: boolean }
+
+/** Tín hiệu vận hành (AIOps/SRE/FinOps) cạnh số liệu kinh doanh — lỗi/không có quyền thì ẩn, không làm hỏng trang. */
+function PlatformHealth() {
+  const q = useQuery({
+    queryKey: ['platform-summary'], refetchInterval: 60_000, retry: false,
+    queryFn: () => api.get<PlatformSummary>('/aiops/platform/summary', undefined, { silent: true }),
+  });
+  if (!q.data) return null;
+  const d = q.data;
+  const budgets = Object.entries(d.error_budget).sort((a, b) => a[1] - b[1]);
+  const lowest = budgets[0];
+  const lcpTone = d.lcp_p75_s == null ? 'info' : d.lcp_p75_s <= 2.5 ? 'success' : d.lcp_p75_s <= 4 ? 'warning' : 'danger';
+  const budgetTone = !lowest ? 'info' : lowest[1] <= 0 ? 'danger' : lowest[1] < 0.25 ? 'warning' : 'success';
+  return (
+    <section className="mt-6">
+      <SectionTitle action={<LinkButton href="/admin/aiops" variant="ghost" size="sm">Sự cố <ArrowRight className="size-4" /></LinkButton>}>
+        Sức khoẻ nền tảng
+      </SectionTitle>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Sự cố mở" value={formatNumber(d.incidents_open)} icon={Siren} tone={d.incidents_open ? 'danger' : 'success'} />
+        <StatCard label="LCP p75" value={d.lcp_p75_s == null ? '—' : d.lcp_p75_s.toFixed(2) + 's'} icon={Gauge} tone={lcpTone} hint="tốt ≤ 2.5s" />
+        <StatCard label="Chi phí/đơn" value={d.cost_per_order_usd == null ? '—' : '$' + d.cost_per_order_usd.toFixed(4)} icon={Coins} tone="info" />
+        <StatCard label="Error budget" value={lowest ? Math.round(lowest[1] * 100) + '%' : '—'} icon={ShieldCheck} tone={budgetTone} hint={lowest?.[0]} />
+      </div>
+      {!d.prometheus && <p className="mt-2 text-xs text-muted">Chưa nối Prometheus — chỉ hiện số sự cố.</p>}
+    </section>
   );
 }

@@ -13,6 +13,7 @@ GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng 
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
+GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
 GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
@@ -317,6 +318,29 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         except httpx.HTTPError as e:
             return err(502, "UPSTREAM_ERROR", f"accounting lỗi: {e}")
         return audit(entries)
+
+    # ---------------------------------------------------------------- tóm tắt sức khoẻ nền tảng (trang Tổng quan admin)
+    @app.get("/platform/summary")
+    def platform_summary():
+        out = {"incidents_open": responder.store.count_open(), "cost_per_order_usd": None, "lcp_p75_s": None,
+               "error_budget": {}, "prometheus": responder.prom is not None}
+        if responder.prom is None:
+            return out
+        queries = {"cost_per_order_usd": "shopnow:cost_per_order_usd",
+                   "lcp_p75_s": 'histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[30m])))'}
+        for key, q in queries.items():
+            try:
+                res = responder.prom.query(q)
+                v = float(res[0]["value"][1]) if res else None
+                out[key] = None if v is None or v != v else round(v, 4)  # NaN → None
+            except Exception as e:  # noqa: BLE001
+                log.warning("platform summary %s lỗi: %s", key, e)
+        try:
+            out["error_budget"] = {r["metric"].get("sloth_slo"): round(float(r["value"][1]), 4)
+                                   for r in responder.prom.query("slo:period_error_budget_remaining:ratio")}
+        except Exception as e:  # noqa: BLE001
+            log.warning("platform summary error budget lỗi: %s", e)
+        return out
 
     # ---------------------------------------------------------------- bàn giao ca trực
     @app.get("/reports/oncall-digest")

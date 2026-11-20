@@ -129,3 +129,33 @@ def test_endpoint_reads_sloth_error_budget(tmp_path):
                                                     {"path": "services/order/test/saga.test.ts", "lines": 10}],
                                          "at": "2026-11-18T03:00:00Z"}).json()
         assert r["error_budget"] == {"order": -0.05} and r["level"] == "high" and "order" in r["policy"]
+
+
+def test_platform_summary(tmp_path):
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from aiops.agent.kube import RecordingBackend, StaticInspector
+    from aiops.agent.notifier import Notifier
+    from aiops.api import create_app
+    from aiops.collectors.prometheus import PrometheusClient
+    from aiops.config import load_settings
+    from aiops.llm import NoneProvider
+
+    def prom(req):
+        q = req.url.params.get("query", "")
+        val = {"shopnow:cost_per_order_usd": [{"metric": {}, "value": [0, "0.0123"]}],
+               "slo:period_error_budget_remaining:ratio": [{"metric": {"sloth_slo": "web-lcp-good"}, "value": [0, "0.42"]}]}
+        res = val.get(q) or ([{"metric": {}, "value": [0, "NaN"]}] if "web_vitals" in q else [])
+        return httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": res}})
+
+    s = load_settings()
+    s.db_url, s.audit_log, s.detector_enabled = f"sqlite:///{tmp_path / 'i.db'}", str(tmp_path / "a.jsonl"), False
+    deps = dict(loki=None, inspector=StaticInspector(), backend=RecordingBackend(), notifier=Notifier("", "", enabled=False), llm=NoneProvider())
+    with TestClient(create_app(s, prom=PrometheusClient("http://p", transport=httpx.MockTransport(prom)), **deps)) as c:
+        r = c.get("/platform/summary").json()
+        assert r == {"incidents_open": 0, "cost_per_order_usd": 0.0123, "lcp_p75_s": None,
+                     "error_budget": {"web-lcp-good": 0.42}, "prometheus": True}
+    s.db_url, s.prometheus_url = f"sqlite:///{tmp_path / 'j.db'}", ""
+    with TestClient(create_app(s, prom=None, **deps)) as c:
+        assert c.get("/platform/summary").json()["prometheus"] is False
