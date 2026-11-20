@@ -1,7 +1,14 @@
 {
   "scenarios_fault": 25,
   "seed": 42,
-  "elapsed_s": 79.0,
+  "elapsed_s": 90.2,
+  "alert_correlation": {
+    "scenarios": 25,
+    "incidents_without": 62,
+    "incidents_with": 28,
+    "reduction": 0.548,
+    "root_in_main_incident": 1.0
+  },
   "configs": {
     "planner": {
       "top1": 0.92,
@@ -10,7 +17,7 @@
       "hallucinated": 0,
       "hallucination_accepted": null,
       "tool_calls_mean": 8,
-      "seconds_p50": 0.017,
+      "seconds_p50": 0.019,
       "by_fault": {
         "cpu": {
           "n": 6,
@@ -41,7 +48,7 @@
       "hallucinated": 11,
       "hallucination_accepted": 0,
       "tool_calls_mean": 2,
-      "seconds_p50": 0.017,
+      "seconds_p50": 0.019,
       "by_fault": {
         "cpu": {
           "n": 6,
@@ -72,7 +79,7 @@
       "hallucinated": 11,
       "hallucination_accepted": 1,
       "tool_calls_mean": 2,
-      "seconds_p50": 0.017,
+      "seconds_p50": 0.019,
       "by_fault": {
         "cpu": {
           "n": 6,

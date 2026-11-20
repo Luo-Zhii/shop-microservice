@@ -19,7 +19,7 @@ import time
 
 from ..collectors.service_graph import build_graph
 from ..detection.logs import summarize_errors
-from ..metrics import ACTIONS, INCIDENTS, INCIDENTS_OPEN, MTTD, MTTR, RCA_EVALUATIONS
+from ..metrics import ACTIONS, CORRELATED, INCIDENTS, INCIDENTS_OPEN, MTTD, MTTR, RCA_EVALUATIONS
 from ..rca import rank_root_causes
 from ..util import iso, parse_ts
 from . import approval
@@ -58,6 +58,12 @@ class Responder:
         self.dedup_s = int(ag.get("dedup_minutes", 30)) * 60
         self.lookback_s = int(ag.get("deploy_lookback_minutes", 30)) * 60
         self.ttl_s = int(ag.get("approval_ttl_minutes", 120)) * 60
+        # Gom cảnh báo theo topology: alert của service liền kề (cạnh gọi đồng bộ) với sự cố đang mở → cùng một sự cố
+        corr = ag.get("correlation") or {}
+        self.corr_enabled = bool(corr.get("enabled", False))
+        self.corr_window_s = int(corr.get("window_minutes", 10)) * 60
+        sync = (settings.raw.get("graph") or {}).get("sync") or {}
+        self.corr_edges = {frozenset((a, b)) for a, bs in sync.items() for b in bs}
 
     # ================================================================ webhook
     def handle_webhook(self, payload: dict) -> list[str]:
@@ -88,6 +94,16 @@ class Responder:
                     self.store.audit("alertmanager", "alert_merged", inc["id"], details={"fingerprint": fp})
                 touched.append(inc["id"])
                 continue
+            rel = self._correlated(svc)
+            if rel:
+                alerts = rel.get("alerts") or []
+                alerts.append({**entry, "correlated_from": svc})
+                self.store.update_incident(rel["id"], alerts=alerts)
+                self.store.audit("alertmanager", "alert_correlated", rel["id"],
+                                 details={"service": svc, "fingerprint": fp, "via": f"{svc}↔{rel['service']}"})
+                CORRELATED.labels(svc).inc()
+                touched.append(rel["id"])
+                continue
             fault_start = parse_ts((alert.get("annotations") or {}).get("fault_start"))
             inc = self.store.create_incident(
                 service=svc, namespace=labels.get("namespace") or self.s.namespace,
@@ -104,6 +120,14 @@ class Responder:
                 log.exception("điều tra sự cố %s lỗi: %s", inc["id"], e)
                 self.store.audit("agent", "investigate_failed", inc["id"], details={"error": str(e)})
         return touched
+
+    def _correlated(self, svc: str) -> dict | None:
+        """Sự cố đang mở (trong cửa sổ) ở service gọi trực tiếp tới / được gọi bởi `svc` — sớm nhất trước."""
+        if not self.corr_enabled:
+            return None
+        cands = [i for i in self.store.list_incidents(status="open", since=self.clock() - self.corr_window_s, limit=50)
+                 if i["service"] != svc and frozenset((svc, i["service"])) in self.corr_edges]
+        return min(cands, key=lambda i: i["detected_at"]) if cands else None
 
     # ================================================================ điều tra
     def gather(self, inc: dict) -> dict:

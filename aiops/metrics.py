@@ -30,3 +30,4 @@ AGENT_COST_USD = Counter("aiops_agent_cost_usd_total", "Chi phí LLM cộng dồ
 GITOPS_PRS = Counter("aiops_gitops_prs_total", "PR khắc phục do tác tử đề xuất", ["action", "verdict"])
 MCP_CALLS = Counter("aiops_mcp_tool_calls_total", "Lệnh gọi công cụ qua MCP", ["tool", "ok"])
 LEDGER_FINDINGS = Counter("aiops_ledger_findings_total", "Phát hiện bất thường trên sổ cái kế toán", ["rule"])
+CORRELATED = Counter("aiops_alerts_correlated_total", "Alert gộp vào sự cố của service liền kề (giảm bão cảnh báo)", ["service"])

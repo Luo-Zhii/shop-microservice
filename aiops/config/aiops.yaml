@@ -96,6 +96,8 @@ alerting:
 agent:
   deploy_lookback_minutes: 30
   investigator: {max_steps: 8, price_per_mtok: 3.0}
+  # gom alert của service liền kề (cạnh gọi đồng bộ) vào sự cố đang mở trong cửa sổ — giảm bão cảnh báo
+  correlation: {enabled: true, window_minutes: 10}
   # SafetyInterlock: giới hạn cứng trong code, không phụ thuộc prompt
   interlock:
     allow: [rollback, scale_up, restart, toggle_flag, notify]

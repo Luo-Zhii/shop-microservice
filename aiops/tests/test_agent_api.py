@@ -60,6 +60,7 @@ def test_full_incident_flow_with_approval(env):
         alert("catalog"), alert("api-gateway"), alert("order")]})
     assert r.status_code == 200
     ids = r.json()["incidents"]
+    assert len(set(ids)) == 1  # gateway + order gọi trực tiếp catalog → gom vào cùng sự cố (giảm bão cảnh báo)
     inc = c.get(f"/incidents/{ids[0]}").json()
     assert inc["service"] == "catalog" and inc["detected_at"] == "2026-11-08T10:00:00.123456Z"
     assert inc["root_causes"][0]["service"] == "catalog"
@@ -87,8 +88,9 @@ def test_full_incident_flow_with_approval(env):
     assert ev["top1"] is True
     # alert resolved → resolved_at + MTTR
     clock.t = NOW + 600
+    # sự cố đã gom 3 alert liền kề → chỉ đóng khi cả 3 hết
     c.post("/webhooks/alertmanager", json={"status": "resolved", "alerts": [
-        alert("catalog", status="resolved", **{}) | {"endsAt": "2026-11-08T10:09:00Z"}]})
+        alert(s, status="resolved") | {"endsAt": "2026-11-08T10:09:00Z"} for s in ("catalog", "api-gateway", "order")]})
     inc = c.get(f"/incidents/{ids[0]}").json()
     assert inc["status"] == "resolved" and inc["resolved_at"] == "2026-11-08T10:09:00Z"
     lst = c.get("/incidents").json()
@@ -143,3 +145,20 @@ def test_webhook_token_required(env):
     s.webhook_token = "sekret"
     assert c.post("/webhooks/alertmanager", json={"alerts": []}).status_code == 401
     assert c.post("/webhooks/alertmanager", json={"alerts": []}, headers={"authorization": "Bearer sekret"}).status_code == 200
+
+
+def test_topology_correlation_merges_adjacent_alerts_only(env):
+    c, sent, backend, clock, s = env
+    first = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("catalog")]}).json()["incidents"][0]
+    # cart gọi trực tiếp catalog → gộp; review không gọi đồng bộ catalog → sự cố riêng
+    cart = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("cart")]}).json()["incidents"][0]
+    review = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("review")]}).json()["incidents"][0]
+    assert cart == first and review != first
+    inc = c.get(f"/incidents/{first}").json()
+    assert [a.get("correlated_from") for a in inc["alerts"]] == [None, "cart"]
+    assert "alert_correlated" in [a["event"] for a in inc["audit"]]
+    # ngoài cửa sổ 10 phút → không gộp
+    clock.t += 11 * 60
+    late = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("cart", fp="fp-cart-2")]}).json()["incidents"][0]
+    assert late != first
+    assert 'aiops_alerts_correlated_total{service="cart"} 1.0' in c.get("/metrics").text

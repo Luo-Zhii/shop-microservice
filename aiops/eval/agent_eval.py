@@ -108,6 +108,31 @@ def world_for(sc, scores, settings, tmp: Path, t_det: int):
     return _World(settings, store, StaticInspector(changes=changes, health=health), _Engine(snap), now), inc, symptom
 
 
+def noise_reduction(n: int, seed: int, settings) -> dict:
+    """Mỗi service bị ảnh hưởng bắn 1 alert (theo thứ tự điểm bất thường giảm dần): đếm sự cố khi tắt/bật gom theo topology
+    (cạnh gọi đồng bộ, như Responder._correlated) và tỉ lệ kịch bản mà service gốc nằm trong sự cố chính."""
+    sync = (settings.raw.get("graph") or {}).get("sync") or {}
+    edges = {frozenset((a, b)) for a, bs in sync.items() for b in bs}
+    rng = np.random.default_rng(seed)
+    seeds = rng.integers(0, 2**31 - 1, size=n)
+    off = on = scen = root_kept = 0
+    for sid in range(n):
+        sc, scores = _simulate_and_score((sid, int(seeds[sid]), seed))
+        if sc.kind != "fault":
+            continue
+        svcs = sorted(set(sc.affected) | {sc.root}, key=lambda s: -float(scores[s].combined[sc.t0 + 3]))
+        incidents: list[list[str]] = []
+        for s in svcs:
+            home = next((i for i in incidents if frozenset((s, i[0])) in edges), None)
+            (home.append(s) if home else incidents.append([s]))
+        scen += 1
+        off += len(svcs)
+        on += len(incidents)
+        root_kept += int(sc.root in incidents[0])  # gốc nằm trong sự cố chính (nơi RCA/tác tử chạy)
+    return {"scenarios": scen, "incidents_without": off, "incidents_with": on,
+            "reduction": round(1 - on / max(1, off), 3), "root_in_main_incident": round(root_kept / max(1, scen), 3)}
+
+
 def run(n: int, seed: int, out: Path) -> dict:
     settings = load_settings()
     rng = np.random.default_rng(seed)
@@ -140,7 +165,9 @@ def run(n: int, seed: int, out: Path) -> dict:
                              "grounding": r["grounding"], "tool_calls": r["cost"]["tool_calls"], "seconds": r["cost"]["seconds"]})
                 world.store.close()
     elapsed = time.perf_counter() - t0
-    summary = {"scenarios_fault": len({r["scenario"] for r in rows}), "seed": seed, "elapsed_s": round(elapsed, 1), "configs": {}}
+    noise = noise_reduction(n, seed, settings)
+    summary = {"scenarios_fault": len({r["scenario"] for r in rows}), "seed": seed, "elapsed_s": round(elapsed, 1),
+               "alert_correlation": noise, "configs": {}}
     for cfg in ("planner", "llm_halluc", "llm_halluc_nogate"):
         rs = [r for r in rows if r["config"] == cfg]
         lies = [r for r in rs if r["lie"]]
