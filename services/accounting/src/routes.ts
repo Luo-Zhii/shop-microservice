@@ -273,6 +273,46 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     return { id, provider: b.provider, period: b.period, summary, exceptions: items.filter((i) => i.status !== 'MATCHED') };
   });
 
+  /**
+   * Đối soát COD với ĐVVC: bảng kê {orderId, codAmount, fee} ↔ số còn phải thu TK 1388 theo đơn.
+   * Dòng khớp → bút toán quyết toán (Nợ 1121 thực nhận + Nợ 6418 phí thu hộ / Có 1388), khử trùng theo (đợt, đơn).
+   * Lệch tiền / đơn không có trong sổ / đơn đã đối soát → danh sách ngoại lệ, không ghi sổ.
+   */
+  app.post('/admin/cod-reconciliation', acct, async (req, reply) => {
+    const b = z.object({
+      carrier: z.string().min(1).max(30), batchRef: z.string().min(1).max(60), date: z.string().date().optional(),
+      rows: z.array(z.object({ orderId: z.string().min(1).max(64), codAmount: z.number().int().positive(), fee: z.number().int().min(0) })).min(1).max(20_000),
+    }).parse(req.body);
+    const date = b.date ?? today();
+    const open = await pool.query<{ order_id: string; balance: number }>(
+      `SELECT order_id, SUM(debit - credit)::bigint AS balance FROM journal_lines
+        WHERE account = '1388' AND order_id = ANY($1) GROUP BY order_id`, [b.rows.map((r) => r.orderId)]);
+    const bal = new Map(open.rows.map((r) => [r.order_id, Number(r.balance)]));
+    const settled: { orderId: string; entryNo: string }[] = [];
+    const exceptions: { orderId: string; reason: string; ledger: number | null; carrier: number }[] = [];
+    for (const r of b.rows) {
+      const owed = bal.get(r.orderId);
+      if (owed === undefined) { exceptions.push({ orderId: r.orderId, reason: 'MISSING_IN_LEDGER', ledger: null, carrier: r.codAmount }); continue; }
+      if (owed === 0) { exceptions.push({ orderId: r.orderId, reason: 'ALREADY_SETTLED', ledger: 0, carrier: r.codAmount }); continue; }
+      if (owed !== r.codAmount) { exceptions.push({ orderId: r.orderId, reason: 'AMOUNT_MISMATCH', ledger: owed, carrier: r.codAmount }); continue; }
+      if (r.fee > r.codAmount) { exceptions.push({ orderId: r.orderId, reason: 'FEE_EXCEEDS_COD', ledger: owed, carrier: r.codAmount }); continue; }
+      const { entry } = await withTx(pool, (c) => postEntry(c, {
+        date, source: 'manual', sourceRef: `cod:${b.carrier}:${b.batchRef}:${r.orderId}`, createdBy: actor(req),
+        description: `Quyết toán COD ${b.carrier} đợt ${b.batchRef} — đơn ${r.orderId}`,
+        lines: [
+          { account: '1121', debit: r.codAmount - r.fee, partyType: 'carrier', partyId: b.carrier, orderId: r.orderId },
+          { account: '6418', debit: r.fee, partyType: 'carrier', partyId: b.carrier, orderId: r.orderId, memo: 'phí thu hộ COD' },
+          { account: '1388', credit: r.codAmount, partyType: 'carrier', partyId: 'default', orderId: r.orderId },
+        ],
+      }, today()));
+      settled.push({ orderId: r.orderId, entryNo: entry.entry_no });
+      bal.set(r.orderId, 0);
+    }
+    reply.code(201);
+    return { carrier: b.carrier, batchRef: b.batchRef, settled: settled.length, exceptions,
+      received: b.rows.filter((r) => settled.some((s) => s.orderId === r.orderId)).reduce((s, r) => s + r.codAmount - r.fee, 0), entries: settled };
+  });
+
   // ---- seller: sao kê công nợ của shop mình ----
   app.get('/seller/statement', { preHandler: auth.requireRole('seller') }, async (req) => {
     const u = requireUser(req);

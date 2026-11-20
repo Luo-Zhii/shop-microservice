@@ -142,6 +142,31 @@ test('tuổi nợ phải trả seller: cấn trừ FIFO, xếp nhóm theo ngày,
   assert.equal(it.overdue, 150);
 });
 
+test('đối soát COD với ĐVVC: khớp thì quyết toán 1388, lệch/thiếu/đã đối soát thành ngoại lệ, gửi lại không ghi đôi', async () => {
+  const a = order({ paymentMethod: 'COD', total: 500_000 });
+  const b = order({ paymentMethod: 'COD', total: 300_000 });
+  for (const o of [a, b]) await handleEvent(pool, createEvent('order.delivered', 'order', o.id, o), R, svc.log);
+  const body = { carrier: 'GHN', batchRef: 'DS-2026-11-20', rows: [
+    { orderId: a.id, codAmount: 500_000, fee: 8_000 },
+    { orderId: b.id, codAmount: 299_000, fee: 8_000 },
+    { orderId: 'don-la', codAmount: 100_000, fee: 0 },
+  ] };
+  const r = await call('POST', '/admin/cod-reconciliation', body);
+  assert.equal(r.statusCode, 201, r.body);
+  const j = r.json();
+  assert.equal(j.settled, 1);
+  assert.equal(j.received, 492_000);
+  assert.deepEqual(j.exceptions.map((e: { reason: string }) => e.reason).sort(), ['AMOUNT_MISMATCH', 'MISSING_IN_LEDGER']);
+  const again = (await call('POST', '/admin/cod-reconciliation', body)).json();
+  assert.equal(again.settled, 0);
+  assert.ok(again.exceptions.some((e: { orderId: string; reason: string }) => e.orderId === a.id && e.reason === 'ALREADY_SETTLED'));
+  // ĐVVC gửi bảng kê điều chỉnh cho đơn lệch → quyết toán nốt
+  const fix = (await call('POST', '/admin/cod-reconciliation', { carrier: 'GHN', batchRef: 'DS-2026-11-20-DC', rows: [{ orderId: b.id, codAmount: 300_000, fee: 8_000 }] })).json();
+  assert.equal(fix.settled, 1);
+  const led = (await call('GET', '/admin/ledger/6418')).json();
+  assert.ok(led.items.some((i: { order_id: string; debit: number }) => i.order_id === a.id && Number(i.debit) === 8_000));
+});
+
 test('COD: ĐVVC thu hộ khi giao; hoàn tiền một phần nhiều lần không bị khử trùng nhầm', async () => {
   const o = order({ paymentMethod: 'COD' });
   assert.equal(await handleEvent(pool, createEvent('order.delivered', 'order', o.id, o), R, svc.log), true);
