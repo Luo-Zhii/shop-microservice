@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardCheck, PackageCheck, PackageOpen, ScanLine } from 'lucide-react';
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
-import { Badge, Button, EmptyState, Field, Input, PageTitle, QueryView, Select, Sheet, Tabs } from '@/components/ui';
+import { Badge, Button, EmptyState, Field, Input, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate, formatNumber, formatVND, type Tone } from '@/lib/format';
 import { toast } from '@/lib/toast';
@@ -173,6 +173,11 @@ function Counts() {
     mutationFn: () => api.post<{ countNo: string; lines: number }>('/warehouse/counts', { warehouse: wh, binPrefix: prefix }),
     onSuccess: (r) => { toast.success(`Đã tạo ${r.countNo} (${r.lines} dòng)`); inv(); }, onError: (e) => toast.error(errorMessage(e)),
   });
+  const startAt = useMutation({
+    mutationFn: (bin: string) => api.post<{ countNo: string; lines: number }>('/warehouse/counts', { warehouse: wh, binPrefix: bin }),
+    onSuccess: (r) => { toast.success(`Đã tạo ${r.countNo} (${r.lines} dòng)`); inv(); void qc.invalidateQueries({ queryKey: ['wh-cc-plan'] }); },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
   const submit = useMutation({
     mutationFn: () => api.post<{ needsApproval: boolean; varianceValue: number }>(`/warehouse/counts/${sheet!.id}/submit`, {
       lines: (lines.data?.items ?? []).map((l) => ({ lotId: l.lot_id, qty: Number(counted[l.lot_id] ?? 0) })),
@@ -194,6 +199,7 @@ function Counts() {
         <Field label="Dãy / kệ (tiền tố vị trí)" htmlFor="pf"><Input id="pf" placeholder="vd A-01 (trống = cả kho)" autoCapitalize="characters" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} /></Field>
         <Button onClick={() => start.mutate()} disabled={start.isPending}><ClipboardCheck className="size-4" />Tạo phiếu kiểm kê</Button>
       </div>
+      <CycleCountPlan warehouse={wh} onStart={(bin) => startAt.mutate(bin)} busy={startAt.isPending} />
       <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có phiếu kiểm kê" />}>
         {(d) => (
           <DataTable rows={d.items} rowKey={(c) => c.id}
@@ -233,6 +239,28 @@ function Counts() {
         </QueryView>
       </Sheet>
     </>
+  );
+}
+
+interface PlanItem { shopId: string; skuId: string; bins: string[]; qty: number; value: number; abc: 'A' | 'B' | 'C'; daysSinceCount: number | null; intervalDays: number }
+
+/** Kiểm kê luân phiên theo ABC: A mỗi 30 ngày, B 90, C 180 — mã chưa từng đếm đến hạn ngay. */
+function CycleCountPlan({ warehouse, onStart, busy }: { warehouse: string; onStart: (bin: string) => void; busy: boolean }) {
+  const q = useQuery({ queryKey: ['wh-cc-plan', warehouse], queryFn: () => api.get<{ items: PlanItem[] }>('/warehouse/reports/cycle-count-plan', { warehouse }) });
+  if (!q.data?.items.length) return null;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Đến hạn kiểm kê luân phiên ({q.data.items.length})</SectionTitle>
+      <DataTable rows={q.data.items.slice(0, 20)} rowKey={(r) => `${r.shopId}-${r.skuId}`}
+        columns={[
+          { key: 'sku', header: 'SKU', primary: true, cell: (r) => <span className="font-mono text-sm break-all">{r.skuId}</span> },
+          { key: 'abc', header: 'Nhóm', badge: true, cell: (r) => <Badge tone={r.abc === 'A' ? 'danger' : r.abc === 'B' ? 'warning' : 'neutral'}>{r.abc} · {r.intervalDays} ngày</Badge> },
+          { key: 'bins', header: 'Vị trí', cell: (r) => r.bins.join(', ') },
+          { key: 'last', header: 'Lần đếm trước', align: 'right', cell: (r) => (r.daysSinceCount == null ? 'chưa từng' : `${r.daysSinceCount} ngày trước`) },
+          { key: 'val', header: 'Giá trị tồn', align: 'right', hideOnMobile: true, cell: (r) => formatVND(r.value) },
+        ]}
+        actions={(r) => <Button size="sm" variant="outline" disabled={busy} onClick={() => onStart(r.bins[0])}><ClipboardCheck className="size-4" />Đếm {r.bins[0]}</Button>} />
+    </section>
   );
 }
 

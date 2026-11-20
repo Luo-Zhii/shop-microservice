@@ -162,3 +162,16 @@ test('đề xuất nhập hàng: SES + tồn an toàn 95% + ROP + ABC từ thẻ
   assert.equal(r.items[0].skuId, 'sku-ban-chay'); // xếp mức khẩn trước
   assert.equal((await call('GET', '/reports/replenishment', seller)).statusCode, 403);
 });
+
+test('kế hoạch kiểm kê luân phiên ABC: mã vừa đếm không đến hạn, mã chưa từng đếm đến hạn, A xếp trước', async () => {
+  const plan = (await call('GET', '/reports/cycle-count-plan?warehouse=HCM1', clerk)).json();
+  const skus = plan.items.map((i: { skuId: string }) => i.skuId);
+  // SKU_A / SKU_B đã nằm trong phiếu KK-00001 được duyệt ở test trước → chưa đến hạn
+  assert.ok(!skus.includes(SKU_A) && !skus.includes(SKU_B));
+  // mã của test đề xuất nhập chưa từng đếm → đến hạn, mã bán chạy (A) đứng trước mã bán chậm
+  const hot = skus.indexOf('sku-ban-chay');
+  const cold = skus.indexOf('sku-ban-cham');
+  assert.ok(hot >= 0 && cold >= 0 && hot < cold);
+  assert.equal(plan.items[hot].daysSinceCount, null);
+  assert.deepEqual(plan.intervals, { A: 30, B: 90, C: 180 });
+});

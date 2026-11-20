@@ -1,5 +1,5 @@
 import { notFound, requireUser, withTx, z, type Auth, type FastifyInstance, type Pool } from '@shopnow/platform';
-import { replenishment } from './replenishment';
+import { cycleCountPlan, replenishment } from './replenishment';
 import {
   allocatePick, approveCount, chargeStorage, confirmPick, countSheet, createReceipt, receive, startCount, stockLedgerReport, submitCount,
 } from './stock';
@@ -99,6 +99,10 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     const q = z.object({ shopId: id.optional(), leadTimeDays: z.coerce.number().int().min(1).max(90).optional(),
       reviewDays: z.coerce.number().int().min(1).max(60).optional(), days: z.coerce.number().int().min(7).max(180).optional() }).parse(req.query);
     return replenishment(pool, q);
+  });
+  app.get('/reports/cycle-count-plan', staff, async (req) => {
+    const q = z.object({ warehouse: z.string().min(2).max(10).optional() }).parse(req.query);
+    return cycleCountPlan(pool, q);
   });
   app.get('/seller/replenishment', seller, async (req) => replenishment(pool, { shopId: requireUser(req).shopId }));
   app.post<{ Params: { period: string } }>('/storage-fees/:period/charge', staff, async (req) => {

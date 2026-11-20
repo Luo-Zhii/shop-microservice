@@ -75,3 +75,29 @@ export async function replenishment(db: Pool | PoolClient, o: ReplenishOptions =
   items.sort((a, b) => rank[a.status as keyof typeof rank] - rank[b.status as keyof typeof rank] || a.abc.localeCompare(b.abc) || b.suggestQty - a.suggestQty);
   return { params: { days, leadTimeDays: L, reviewDays: R, alpha, serviceLevelZ: z }, items };
 }
+
+/**
+ * Kế hoạch kiểm kê luân phiên (cycle counting) theo ABC: A mỗi 30 ngày, B 90, C 180 — chưa từng đếm = đến hạn.
+ * Lần đếm gần nhất lấy từ phiếu kiểm kê đã DUYỆT chứa lô của SKU. Trả các SKU đến hạn kèm vị trí đang có hàng.
+ */
+export async function cycleCountPlan(db: Pool | PoolClient, o: { intervals?: Record<'A' | 'B' | 'C', number>; warehouse?: string } = {}) {
+  const iv = o.intervals ?? { A: 30, B: 90, C: 180 };
+  const { items } = await replenishment(db, {});
+  const abcOf = new Map(items.map((i) => [`${i.shopId}|${i.skuId}`, i.abc as 'A' | 'B' | 'C']));
+  const { rows } = await db.query<{ shop_id: string; sku_id: string; warehouse: string; bins: string[]; qty: number; value: number; last_counted: string | null }>(
+    `SELECT l.shop_id, l.sku_id, l.warehouse, array_agg(DISTINCT l.bin ORDER BY l.bin) AS bins, SUM(l.qty)::int AS qty,
+            SUM(l.qty * l.unit_cost)::bigint AS value,
+            (SELECT max(c.decided_at) FROM counts c JOIN count_lines cl ON cl.count_id = c.id
+              WHERE c.status = 'APPROVED' AND cl.shop_id = l.shop_id AND cl.sku_id = l.sku_id) AS last_counted
+       FROM lots l WHERE l.qty > 0 AND l.bin <> 'QRT' AND ($1::text IS NULL OR l.warehouse = $1)
+      GROUP BY l.shop_id, l.sku_id, l.warehouse`, [o.warehouse ?? null]);
+  const now = Date.now();
+  const plan = rows.map((r) => {
+    const abc = abcOf.get(`${r.shop_id}|${r.sku_id}`) ?? 'C';
+    const days = r.last_counted ? Math.floor((now - Date.parse(r.last_counted)) / 86_400_000) : null;
+    const due = days == null || days >= iv[abc];
+    return { shopId: r.shop_id, skuId: r.sku_id, warehouse: r.warehouse, bins: r.bins, qty: Number(r.qty), value: Number(r.value),
+      abc, daysSinceCount: days, intervalDays: iv[abc], due };
+  }).filter((p) => p.due).sort((a, b) => a.abc.localeCompare(b.abc) || b.value - a.value);
+  return { intervals: iv, items: plan };
+}
