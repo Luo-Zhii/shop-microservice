@@ -10,6 +10,7 @@ test('định dạng tiền/số kiểu Việt Nam, null an toàn', () => {
   assert.equal(nbsp(formatVND(1_030_000)), '1.030.000 ₫');
   assert.equal(formatNumber(12345.6), '12.345,6');
   assert.equal(formatCompact(2_500_000), '2,5tr');
+  assert.equal(formatCompact(123_456_789_000), '123,5 tỷ');
   assert.equal(formatCompact(1500), '1,5k');
   for (const f of [formatVND, formatNumber, formatCompact]) assert.equal(typeof f(null), 'string');
 });

@@ -6,7 +6,7 @@ import { BarChart } from '@/components/bar-chart';
 import { StatCard } from '@/components/dash-shell';
 import { Badge, Card, LinkButton, PageTitle, QueryView, SectionTitle, Skeleton } from '@/components/ui';
 import { api } from '@/lib/api';
-import { ORDER_STATUS, formatNumber, formatVND, pick, statusOf } from '@/lib/format';
+import { ORDER_STATUS, formatCompact, formatNumber, formatVND, pick, statusOf } from '@/lib/format';
 import { normalizeStats } from '@/lib/stats';
 
 export default function AdminDashboard() {
@@ -19,10 +19,14 @@ export default function AdminDashboard() {
           const cancelled = Number(s.byStatus.CANCELLED ?? 0);
           const rate = Number(pick(s.raw, 'cancelRate', 'cancellationRate') ?? (s.orders ? cancelled / s.orders : 0));
           const pct = rate > 1 ? rate : rate * 100;
+          const gmv = Number(pick(s.raw, 'gmv') ?? s.revenue);
           return (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <StatCard label="GMV" value={formatVND(Number(pick(s.raw, 'gmv') ?? s.revenue))} icon={DollarSign} />
+                <StatCard label="GMV" icon={DollarSign} value={
+                  // thẻ 2 cột trên điện thoại không đủ chỗ cho số tiền 12 chữ số → rút gọn (tỷ/tr), đủ số từ md; title giữ số đầy đủ
+                  <span title={formatVND(gmv)}><span className="md:hidden">{formatCompact(gmv)} ₫</span><span className="hidden md:inline">{formatVND(gmv)}</span></span>
+                } />
                 <StatCard label="Tổng đơn" value={formatNumber(s.orders)} icon={ClipboardList} tone="info" />
                 <StatCard label="Tỉ lệ huỷ" value={`${pct.toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`} icon={Ban} tone={pct > 10 ? 'danger' : 'warning'} hint={`${formatNumber(cancelled)} đơn huỷ`} />
                 <StatCard label="Hoàn thành" value={formatNumber(Number(s.byStatus.COMPLETED ?? 0))} icon={PackageCheck} tone="success" />

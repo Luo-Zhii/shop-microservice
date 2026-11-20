@@ -17,6 +17,7 @@ export function formatNumber(v: number | null | undefined): string {
 /** 1250 → "1,2k" */
 export function formatCompact(v: number | null | undefined): string {
   if (!v) return '0';
+  if (v >= 1_000_000_000) return (v / 1_000_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) + ' tỷ';
   if (v >= 1_000_000) return `${(v / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}tr`;
   if (v >= 1000) return `${(v / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}k`;
   return String(v);
