@@ -25,7 +25,7 @@ async function move(c: PoolClient, type: MoveType, lot: Pick<Lot, 'id' | 'wareho
 
 async function emitStock(c: PoolClient, shopId: string, skuId: string, reason: string) {
   const { rows } = await c.query<{ on_hand: number; available: number }>(
-    'SELECT COALESCE(SUM(qty),0)::int AS on_hand, COALESCE(SUM(qty - reserved),0)::int AS available FROM lots WHERE shop_id = $1 AND sku_id = $2',
+    "SELECT COALESCE(SUM(qty),0)::int AS on_hand, COALESCE(SUM(qty - reserved) FILTER (WHERE bin <> 'QRT'),0)::int AS available FROM lots WHERE shop_id = $1 AND sku_id = $2",
     [shopId, skuId]);
   await enqueue(c, Topics.warehouse, createEvent('warehouse.stock_changed', 'warehouse', skuId, { shopId, skuId, ...rows[0], reason }));
 }

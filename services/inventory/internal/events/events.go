@@ -23,6 +23,7 @@ const (
 	TopicCatalogProduct   = "catalog.product.v1"
 	TopicInventoryCommand = "inventory.command.v1"
 	TopicInventoryEvent   = "inventory.event.v1"
+	TopicWarehouse        = "warehouse.v1"
 
 	Source = "inventory"
 )

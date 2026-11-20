@@ -163,6 +163,15 @@ func (s *Service) HandleEvent(ctx context.Context, topic string, ev events.Envel
 			c.ReservationID = ev.Subject
 		}
 		fn = func(tx pgx.Tx) error { return s.restock(ctx, tx, c) }
+	case EvWarehouseStockChanged:
+		var w WarehouseStock
+		if err := json.Unmarshal(ev.Data, &w); err != nil {
+			return fmt.Errorf("%w: %v", ErrPermanent, err)
+		}
+		if w.SkuID == "" {
+			w.SkuID = ev.Subject
+		}
+		fn = func(tx pgx.Tx) error { return s.syncFromWarehouse(ctx, tx, w) }
 	default:
 		return nil // sự kiện khác trên cùng topic → bỏ qua
 	}

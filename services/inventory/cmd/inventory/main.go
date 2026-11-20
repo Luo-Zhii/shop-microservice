@@ -83,9 +83,9 @@ func run() error {
 			return fmt.Errorf("kafka producer: %w", err)
 		}
 		defer producer.Close()
-		producer.EnsureTopics(startCtx, log, events.TopicInventoryEvent, events.TopicInventoryCommand, events.TopicCatalogProduct)
+		producer.EnsureTopics(startCtx, log, events.TopicInventoryEvent, events.TopicInventoryCommand, events.TopicCatalogProduct, events.TopicWarehouse)
 		consumer, err = kafka.NewConsumer(cfg.KafkaBrokers, inventory.Consumer,
-			[]string{events.TopicCatalogProduct, events.TopicInventoryCommand}, producer, svc.HandleEvent, log)
+			[]string{events.TopicCatalogProduct, events.TopicInventoryCommand, events.TopicWarehouse}, producer, svc.HandleEvent, log)
 		if err != nil {
 			return fmt.Errorf("kafka consumer: %w", err)
 		}
