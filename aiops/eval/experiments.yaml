@@ -15,3 +15,7 @@ experiments:
   - manifest: ../../../shop-gitops/platform/chaos/experiments/postgres-latency.yaml
   - manifest: ../../../shop-gitops/platform/chaos/experiments/kafka-network-partition.yaml
     observe_seconds: 240
+  # 20/11/2026 — phân hệ mới: hạch toán chịu pod-kill (idempotent + chuỗi hash), kho chậm, chuỗi RUM → backend
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/pod-kill-accounting.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/network-delay-warehouse.yaml
+  - manifest: ../../../shop-gitops/platform/chaos/experiments/http-abort-rum.yaml
