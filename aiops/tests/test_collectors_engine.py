@@ -66,3 +66,32 @@ def test_engine_scores_and_pushes_alert_with_source_label():
     assert fired and fired[0]["labels"]["source"] == "aiops" and fired[0]["labels"]["env"] == "dev"
     assert posted and posted[0][0]["labels"]["alertname"] == "AIOpsAnomaly"
     assert snap.services["catalog"].onset <= now + t_end * 30
+
+
+def test_kpi_anomalies_business_and_ux():
+    """Đơn/giây sụt (HTTP vẫn bình thường) và LCP vượt ngưỡng ở service chỉ có RUM → điểm bất thường + top feature KPI."""
+    from aiops.detection.kpi import kpi_scores, robust_z
+
+    rng = np.random.default_rng(1)
+    s = load_settings()
+    s.raw["logs"]["enabled"] = False
+    eng = DetectorEngine(s, prom=None, loki=None, alerts=None)
+    T = 120
+    orders = 5 + rng.normal(0, 0.3, T)
+    orders[-5:] = 0.4                     # checkout hỏng logic: gần như không ai đặt được đơn
+    lcp = 1.8 + rng.normal(0, 0.05, T)
+    lcp[-5:] = 5.5                        # trang chậm phía trình duyệt
+    flat = {k: np.full(T, v) for k, v in (("rps", 50.0), ("p95", 0.12), ("err", 0.001), ("cpu", 0.2), ("mem", 200.0), ("dlq", 0.0))}
+    data = {"order": {**{k: v + rng.normal(0, v * 0.02 + 1e-6, T) for k, v in flat.items()}, "orders": orders},
+            "web": {"lcp": lcp, "jserr": np.full(T, 0.01)}}
+    snap = eng.evaluate(1_700_000_000.0, data=data, log_lines=[])
+    assert snap.services["order"].score >= 0.6 and snap.services["order"].top_features[0][0] == "orders"
+    assert snap.services["web"].score >= 0.6 and snap.services["web"].top_features[0][0] == "lcp"
+    # LCP tăng nhưng vẫn dưới ngưỡng good 2.5s → không tính; đơn tăng (chiều tốt) → không tính
+    ok_lcp = 1.2 + rng.normal(0, 0.02, T)
+    ok_lcp[-5:] = 2.0
+    assert kpi_scores({"lcp": ok_lcp}, {"lcp": {"direction": "up", "min_level": 2.5}}, slice(0, 100))[0] == 0.0
+    up_orders = orders.copy()
+    up_orders[-5:] = 20
+    assert kpi_scores({"orders": up_orders}, {"orders": {"direction": "down"}}, slice(0, 100))[0] == 0.0
+    assert robust_z(np.full(50, 3.0), slice(0, 40)) == 0.0   # chuỗi phẳng: không chia cho 0

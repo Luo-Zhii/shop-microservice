@@ -60,6 +60,21 @@ features:
     label_replace(histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[{window}]))),
     "service", "web", "", "")
   jserr: label_replace(sum(rate(web_errors_total[{window}])), "service", "web", "", "")
+  # KPI kinh doanh: đơn tạo/giây (giảm là xấu), tỉ lệ thanh toán lỗi (tăng là xấu)
+  orders: label_replace(sum(rate(orders_created_total[{window}])), "service", "order", "", "")
+  pay_fail: >-
+    label_replace(sum(rate(payments_total{result="failed"}[{window}]))
+    / clamp_min(sum(rate(payments_total{result=~"succeeded|failed"}[{window}])), 1e-9), "service", "payment", "", "")
+
+# KPI có hướng — detection/kpi.py chấm robust z theo chiều xấu, gộp vào điểm bất thường của service
+kpis:
+  web:
+    lcp: {direction: up, min_level: 2.5}     # chỉ tính khi LCP p75 vượt ngưỡng "good"
+    jserr: {direction: up}
+  order:
+    orders: {direction: down}
+  payment:
+    pay_fail: {direction: up, min_level: 0.02}
 rate_window: 1m
 
 detection:

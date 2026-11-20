@@ -15,6 +15,7 @@ import numpy as np
 from .collectors.loki import LokiClient, stream_service
 from .collectors.prometheus import PrometheusClient
 from .detection.logs import LogAnomalyDetector
+from .detection.kpi import kpi_scores
 from .detection.metrics import DERIVED, IForest, derive, score_service
 from .metrics import ANOMALY_SCORE, DETECTOR_RUNS, LOG_SCORE, METRIC_SCORE
 from .alerting import AlertmanagerClient, build_alert
@@ -157,6 +158,15 @@ class DetectorEngine:
                     while i > 0 and comb[i - 1] >= 0.3:
                         i -= 1
                     st.onset = now - (len(comb) - 1 - i) * step
+            # KPI có hướng (UX/kinh doanh) — chạy cả khi service không có rps/p95 (vd web chỉ có RUM)
+            spec = (self.s.raw.get("kpis") or {}).get(svc)
+            if spec and raw:
+                T = max(len(v) for v in raw.values())
+                ks, kf = kpi_scores(raw, spec, slice(0, max(20, T - self.exclude_steps)))
+                if kf:
+                    st.top_features = (kf + list(st.top_features))[:4]
+                if ks > st.metric_score:
+                    st.metric_score = ks
             f = findings.get(svc)
             if f:
                 st.log_score = f.score
