@@ -1,0 +1,40 @@
+# AIOps cho change management: chấm rủi ro mỗi PR từ diff (cỡ thay đổi, migration, thư viện dùng chung, service
+# tiền/đơn, thiếu test, giờ deploy, sự cố 30 ngày) → bình luận PR + gắn nhãn risk:* → cấu hình canary đề xuất.
+name: change-risk
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - run: pip install numpy==2.1.3
+      - name: Lịch sử sự cố 30 ngày (nếu AIOps mở cho CI)
+        if: vars.AIOPS_URL != ''
+        env: {AIOPS_URL: "${{ vars.AIOPS_URL }}", TOKEN: "${{ secrets.AIOPS_CI_TOKEN }}"}
+        run: |
+          since=$(date -u -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          curl -fsS -H "authorization: Bearer $TOKEN" "$AIOPS_URL/incidents?since=$since&limit=500" \
+            | python -c 'import json,sys,collections; c=collections.Counter(i["service"] for i in json.load(sys.stdin)["items"]); json.dump(c, open("incidents.json","w"))' || echo '{}' > incidents.json
+      - name: Chấm rủi ro
+        id: risk
+        run: |
+          [ -f incidents.json ] || echo '{}' > incidents.json
+          python -m aiops.change_risk --base "origin/${{ github.base_ref }}" --head HEAD --incidents incidents.json --output risk.md > risk.json
+          echo "level=$(python -c 'import json; print(json.load(open("risk.json"))["level"])')" >> "$GITHUB_OUTPUT"
+          cat risk.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Bình luận + nhãn trên PR
+        env: {GH_TOKEN: "${{ github.token }}", PR: "${{ github.event.pull_request.number }}", LEVEL: "${{ steps.risk.outputs.level }}"}
+        run: |
+          gh pr comment "$PR" --repo "${{ github.repository }}" --body-file risk.md --edit-last \
+            || gh pr comment "$PR" --repo "${{ github.repository }}" --body-file risk.md
+          for l in low medium high; do gh label create "risk:$l" --repo "${{ github.repository }}" --force >/dev/null 2>&1 || true; done
+          gh pr edit "$PR" --repo "${{ github.repository }}" --remove-label risk:low,risk:medium,risk:high >/dev/null 2>&1 || true
+          gh pr edit "$PR" --repo "${{ github.repository }}" --add-label "risk:$LEVEL"

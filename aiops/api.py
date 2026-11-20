@@ -11,6 +11,7 @@ POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LL
 GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ dữ liệu sự cố
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
+POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
@@ -273,6 +274,23 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         responder.store.audit(request.headers.get("x-actor", "api"), "gitops_pr_" + pr["status"], inv["incident_id"],
                               details={"investigation": investigation_id, **{k: pr.get(k) for k in ("url", "problems")}})
         return pr
+
+    # ---------------------------------------------------------------- rủi ro thay đổi (CD gọi trước khi rollout)
+    @app.post("/change-risk")
+    async def change_risk(request: Request):
+        from datetime import datetime
+
+        from .change_risk import Change, score
+
+        body = await request.json()
+        files = [(str(f["path"]), int(f.get("lines", 0))) for f in (body.get("files") or [])][:5000]
+        if not files:
+            return err(400, "VALIDATION_ERROR", "cần danh sách files [{path, lines}]")
+        when = datetime.fromisoformat(body["at"].replace("Z", "+00:00")) if body.get("at") else None
+        ch = Change(files, **({"when": when} if when else {}))
+        since = responder.clock() - 30 * 86400
+        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
+        return {"services": ch.services(), "incidents_30d": ch.incidents_30d, **score(ch.features())}
 
     # ---------------------------------------------------------------- kiểm toán sổ cái
     @app.get("/audit/ledger")
