@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, ClipboardList, Clock, LayoutDashboard, MessageSquare, Package, RefreshCw, Settings, Store, Ticket, Wallet, XCircle } from 'lucide-react';
+import { Boxes, ClipboardList, Clock, FileSpreadsheet, LayoutDashboard, MessageSquare, Package, RefreshCw, Settings, Store, Ticket, Wallet, Warehouse, XCircle } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DashShell, type NavItem } from '@/components/dash-shell';
 import { ShopForm } from '@/components/seller/shop-form';
@@ -18,7 +18,9 @@ const NAV: NavItem[] = [
   { href: '/seller/orders', label: 'Đơn hàng', icon: ClipboardList },
   { href: '/seller/vouchers', label: 'Voucher của shop', icon: Ticket },
   { href: '/seller/reviews', label: 'Đánh giá', icon: MessageSquare },
+  { href: '/seller/fulfillment', label: 'Kho sàn', icon: Warehouse },
   { href: '/seller/wallet', label: 'Ví & rút tiền', icon: Wallet },
+  { href: '/seller/statement', label: 'Sao kê công nợ', icon: FileSpreadsheet },
   { href: '/seller/shop', label: 'Hồ sơ shop', icon: Settings },
 ];
 

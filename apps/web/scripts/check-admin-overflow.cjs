@@ -1,9 +1,9 @@
 // Chạy: WEB_URL=http://localhost:3000 node apps/web/scripts/check-admin-overflow.cjs (cần playwright + chromium; API được mock)
-// Kiểm tràn ngang 3 trang admin mới với API giả (mock) + token admin giả, ở 320/375/414/768/1280.
+// Kiểm tràn ngang các trang admin/seller mới với API giả (mock) + token admin giả, ở 320/375/414/768/1280.
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-const jwt = `${b64({ alg: 'none' })}.${b64({ sub: 'u-admin', email: 'admin.rat.dai.de.thu.tran@shopnow.local', roles: ['admin'], exp: 4102444800 })}.x`;
+const jwt = `${b64({ alg: 'none' })}.${b64({ sub: 'u-admin', email: 'admin.rat.dai.de.thu.tran@shopnow.local', roles: ['admin', 'seller'], shopId: 'shop-1', exp: 4102444800 })}.x`;
 const id = (n) => `01934f6e-aaaa-7bbb-8ccc-${String(n).padStart(12, '0')}`;
 const lines = [{ line_no: 1, account: '3388', debit: 1030000, credit: 0 }, { line_no: 2, account: '331', debit: 0, credit: 950000 }, { line_no: 3, account: '5113', debit: 0, credit: 45455 }, { line_no: 4, account: '33311', debit: 0, credit: 4545 }, { line_no: 5, account: '3311', debit: 0, credit: 30000 }];
 const inv = {
@@ -16,6 +16,10 @@ const inv = {
   pr: { status: 'proposed', url: 'https://github.com/Luo-Zhii/shop-gitops/pull/1234567', diff: '--- a/environments/dev/images.yaml\n+++ b/environments/dev/images.yaml\n-  catalog: {tag: "sha-new7777777777777777777777", digest: "sha256:abcdef0123456789abcdef0123456789"}\n+  catalog: {tag: "sha-old6666", digest: ""}' },
 };
 const fixtures = [
+  [/seller\/shops\/me/, { id: 'shop-1', ownerId: 'u-admin', name: 'Shop Thời Trang Có Tên Rất Dài Để Thử Xuống Dòng', slug: 'shop-thoi-trang', status: 'APPROVED' }],
+  [/accounting\/seller\/statement/, { period: '2026-11', balance: 50000000, items: [{ entry_no: 'BT-202611-000123', entry_date: '2026-11-20', description: 'Quyết toán đơn 01934f6e-aaaa-7bbb-8ccc-000000000001: seller 950000, hoa hồng 50000, ship 30000', order_id: 'o1', debit: 0, credit: 950000000 }, { entry_no: 'BT-202611-000124', entry_date: '2026-11-20', description: 'Chi trả seller', order_id: null, debit: 900000000, credit: 0 }], invoices: [{ invoice_no: '0000123', series: '1C26TSN', order_id: 'o1', issue_date: '2026-11-20', amount_before_tax: 45455, vat_amount: 4545, total: 50000 }] }],
+  [/warehouse\/seller\/replenishment/, { items: [{ skuId: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', abc: 'A', forecastPerDay: 12.3, available: 6, daysOfCover: 0.5, suggestQty: 185, status: 'critical' }] }],
+  [/warehouse\/seller\/stock/, { items: [{ sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', warehouse: 'HCM1', on_hand: 7, available: 6, quarantined: 1 }] }],
   [/identity\/auth\/refresh/, { accessToken: jwt, refreshToken: 'rt' }],
   [/identity\/(users\/)?me/, { id: 'u-admin', email: 'admin@shopnow.local', fullName: 'Quản trị', roles: ['admin'] }],
   [/aiops\/incidents\/[^/]+\/investigations/, { items: [inv] }],
@@ -37,6 +41,8 @@ const fixtures = [
 ];
 
 const PAGES = [
+  ['/seller/statement', null], ['/seller/fulfillment', null],
+  ['/seller/fulfillment#asn', async (p) => { await p.getByRole('button', { name: 'Báo gửi hàng' }).locator('visible=true').first().click(); await p.getByText('Thêm dòng').waitFor({ timeout: 8000 }); }],
   ['/admin/aiops', async (p) => { await p.getByText('HighErrorRate').locator('visible=true').first().click(); await p.getByText('Các bước điều tra').waitFor({ timeout: 8000 }); }],
   ['/admin/accounting', null], ['/admin/accounting#journal', 'Nhật ký chung'], ['/admin/accounting#close', 'Khoá sổ & toàn vẹn'], ['/admin/accounting#audit', 'Kiểm toán AI'],
   ['/admin/warehouse', null], ['/admin/warehouse#picks', 'Lấy hàng'], ['/admin/warehouse#counts', 'Kiểm kê'], ['/admin/warehouse#ledger', 'Nhập – xuất – tồn'], ['/admin/warehouse#replenish', 'Đề xuất nhập'],
