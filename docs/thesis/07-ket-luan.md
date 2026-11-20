@@ -4,7 +4,7 @@
 
 | Mục tiêu (§1.2) | Kết quả | Minh chứng |
 |---|---|---|
-| M1 — Sàn TMĐT microservice nhất quán | 15 service (Node, Go, Python) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 179/179 test; test đồng thời inventory, promotion |
+| M1 — Sàn TMĐT microservice nhất quán | 17 service (Node, Go, Python; thêm kế toán và kho ở chương 8) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 239 test tự động (179 ở chương 5 + 60 ở chương 8); test đồng thời inventory, promotion |
 | M2 — DevSecOps có cổng chặn thật | Pipeline chặn khi test lỗi, lộ secret, CVE HIGH/CRITICAL; SBOM + Cosign keyless; Kyverno verifyImages | `ci.yml`; kyverno test 50/50 |
 | M3 — GitOps hybrid | Một repo cấu hình cho 4 môi trường; ApplicationSet đa cụm; canary + AnalysisTemplate; promote bằng PR | `make validate` 1027 manifest 0 lỗi |
 | M4 — Quan sát hợp nhất | OTel + LGTM, trace xuyên Kafka (traceparent trong sự kiện), log có trace_id, 4 dashboard, 3 SLO burn-rate | Chart + platform/observability |
@@ -19,6 +19,18 @@
   trên dữ liệu tổng hợp.
 - **RQ2, RQ5**: mới có số liệu mô hình hoá (MTTR ước lượng 297 s so với 497 s). Cần chạy trên cụm thật để kết luận.
 
+**Kết quả của phần mở rộng (chương 8):**
+
+| Hướng | Kết quả | Mục |
+|---|---|---|
+| Tác tử điều tra (agentic RCA) qua MCP | Planner tất định: top-1 0.92, hành động đúng 0.92 trên 25 kịch bản. Lọc grounding chặn 11/11 kết luận bịa của LLM giả lập; tắt lọc thì lọt 11/11 | 8.2, 8.10 |
+| Gom cảnh báo theo topology | Số sự cố 62 → 28 (−54.8%); service gốc nằm trong sự cố chính 25/25 | 8.15 |
+| KPI kinh doanh/UX có hướng | Bắt được "HTTP 200 nhưng không ai đặt được đơn" và LCP xấu, điều mà 6 đặc trưng hạ tầng bỏ sót | 8.20 |
+| Dự báo dung lượng + flash sale | Holt-Winters sai 2.3% ở đỉnh (giữ mức hiện tại sai 14%); học được hệ số flash sale ≈ 3 → KEDA scale trước | 8.21, 8.22 |
+| Change management | Chấm rủi ro từ diff + chính sách error budget → nhãn PR và cấu hình canary | 8.13 |
+| DevSecOps chuỗi cung ứng | SLSA provenance, OpenVEX, Scorecard, Kyverno kiểm attestation (Audit), canary có cổng AIOps | 8.6, 8.12 |
+| Workload doanh nghiệp | Sổ cái kép bất biến có chuỗi hash, khoá sổ, GTGT, tuổi nợ, đối soát COD/cổng TT; kho FIFO, kiểm kê mù four-eyes, ABC, đề xuất nhập | 8.3–8.4, 8.11–8.18 |
+
 ## 2. Đóng góp
 
 1. Một hệ thống mẫu "đủ thật" (sàn nhiều người bán, saga có bù trừ, thanh toán, vận chuyển) làm nền cho nghiên cứu vận
@@ -28,6 +40,10 @@
 3. Quy trình hybrid khả chuyển: cùng chart và cùng pipeline cho on-prem (Proxmox/RKE2) và AWS (EKS); khác biệt gói gọn
    trong values theo môi trường.
 4. Vòng kín AIOps có người duyệt cùng bộ đánh giá tái lập được (seed cố định, thí nghiệm chaos gắn nhãn nguyên nhân).
+5. Tác tử AIOps "có căn cứ": mọi kết luận phải trích bằng chứng sinh từ công cụ; giới hạn an toàn viết trong code thay vì
+   prompt; khắc phục chỉ đi qua PR GitOps có cổng xác minh diff. Thiết kế này đo được bằng ablation (mục 8.10).
+6. AIOps vượt ra ngoài hạ tầng: dùng cùng một khung để phát hiện bất thường trên KPI kinh doanh, dữ liệu kế toán (Benford,
+   chi trùng) và rủi ro thay đổi, đồng thời nối dự báo với autoscaling.
 
 ## 3. Hạn chế
 
@@ -39,6 +55,10 @@
 | IsolationForest đơn lẻ yếu (F1 0.288) | Không ngoại suy ngoài miền dữ liệu huấn luyện | Phải ghép với z-score |
 | Refresh token lưu localStorage | Đơn giản hoá phía web | Nên chuyển sang cookie httpOnly do gateway đặt |
 | Giá trị môi trường thật còn `REPLACE-ME` | Chưa `terraform apply` | Phải điền từ output Terraform trước khi đồng bộ prod |
+| Tác tử LLM mới đo bằng LLM giả lập | Không dùng API LLM trả phí trong đợt đánh giá | Mục 8.10 chứng minh bộ lọc grounding, chưa đo năng lực LLM thật |
+| Dự báo dung lượng, KPI, gom cảnh báo đo trên dữ liệu tổng hợp | Như trên: chưa có cụm và lưu lượng thật | Cần kiểm lại khi có Prometheus thật; chưa có mùa vụ tuần |
+| Trọng số chấm rủi ro thay đổi là prior do người đặt | Chưa có lịch sử deploy → sự cố để học | `fit()` sẵn sàng khi có dữ liệu |
+| Workflow mới (SLSA, Scorecard, change-risk) và policy attestation chưa chạy trên GitHub/cụm thật | Như hàng đầu | Mới kiểm cú pháp, render và test cục bộ |
 
 ## 4. Hướng phát triển
 
@@ -46,6 +66,10 @@
    cảnh báo, AIOps có hành động.
 2. Thêm nút hạ tầng (Kafka, Postgres, Redis) vào đồ thị RCA, thử thuật toán dựa trên trace (TraceRCA) và mô hình nhân quả.
 3. Thay IsolationForest bằng mô hình chuỗi thời gian nhẹ (LSTM-autoencoder, USAD) chạy CPU, rồi so sánh trên cùng bộ eval.
-4. Dự báo tải (Prophet) để KEDA scale trước giờ flash sale (predictive autoscaling).
+4. ~~Dự báo tải để KEDA scale trước giờ flash sale~~: đã làm ở mục 8.21–8.22 (Holt-Winters + lịch flash sale). Còn lại:
+   mùa vụ tuần, và so sánh với Prophet/N-BEATS trên dữ liệu thật.
 5. Bổ sung chat người mua – người bán, CDC (Debezium) thay cho outbox polling, đa vùng active-passive cho prod-aws.
 6. Đo DORA thực trong 4–8 tuần vận hành pipeline trên GitHub.
+7. Đánh giá tác tử với LLM thật (Claude, Ollama) trên benchmark công khai (Cloud-OpsBench, AIOpsLab), đo chi phí trên
+   mỗi lần điều tra hoàn tất và tỉ lệ kết luận bị loại vì không có bằng chứng.
+8. Học trọng số chấm rủi ro thay đổi từ lịch sử deploy thật; chuyển policy attestation của Kyverno từ Audit sang Enforce.
