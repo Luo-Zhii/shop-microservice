@@ -1,16 +1,16 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Lock, ShieldCheck, ShieldX, Sparkles, Undo2 } from 'lucide-react';
+import { BookOpen, FileCheck2, Lock, ShieldCheck, ShieldX, Sparkles, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
-import { Badge, Button, Card, ConfirmSheet, EmptyState, Field, Input, PageTitle, Pagination, QueryView, ReasonSheet, SectionTitle, Tabs } from '@/components/ui';
-import { api } from '@/lib/api';
+import { Badge, Button, Card, ConfirmSheet, EmptyState, Field, Input, PageTitle, Pagination, QueryView, ReasonSheet, SectionTitle, Select, Tabs, Textarea } from '@/components/ui';
+import { api, errorMessage } from '@/lib/api';
 import { formatDate, formatVND, totalPages } from '@/lib/format';
 import { toast } from '@/lib/toast';
 
-type Tab = 'trial' | 'journal' | 'payables' | 'close' | 'audit';
+type Tab = 'trial' | 'journal' | 'payables' | 'recon' | 'close' | 'audit';
 interface TrialRow { account: string; name: string; openingDebit: number; openingCredit: number; debit: number; credit: number; closingDebit: number; closingCredit: number }
 interface Trial { period: string; rows: TrialRow[]; totals: Omit<TrialRow, 'account' | 'name'>; balanced: boolean }
 interface Line { line_no: number; account: string; debit: number; credit: number; party_type: string | null; party_id: string | null; order_id: string | null }
@@ -34,11 +34,12 @@ export default function AdminAccountingPage() {
       </PageTitle>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
         { value: 'trial', label: 'Cân đối số phát sinh' }, { value: 'journal', label: 'Nhật ký chung' }, { value: 'payables', label: 'Tuổi nợ seller' },
-        { value: 'close', label: 'Khoá sổ & toàn vẹn' }, { value: 'audit', label: 'Kiểm toán AI' },
+        { value: 'recon', label: 'Đối soát' }, { value: 'close', label: 'Khoá sổ & toàn vẹn' }, { value: 'audit', label: 'Kiểm toán AI' },
       ]} />
       {tab === 'trial' && <TrialBalance period={period} />}
       {tab === 'journal' && <Journal period={period} />}
       {tab === 'payables' && <Payables />}
+      {tab === 'recon' && <Reconciliation period={period} />}
       {tab === 'close' && <Closing />}
       {tab === 'audit' && <Audit />}
     </div>
@@ -252,5 +253,75 @@ function Audit() {
         </div>
       )}
     </QueryView>
+  );
+}
+
+// ---------------------------------------------------------------- đối soát (cổng thanh toán / COD ĐVVC)
+interface ReconException { ref?: string; orderId?: string; status?: string; reason?: string; gateway_amount?: number | null; ledger_amount?: number | null; ledger?: number | null; carrier?: number }
+interface ReconResult { settled?: number; received?: number; summary?: Record<string, number>; exceptions: ReconException[] }
+const REASON_VI: Record<string, string> = {
+  AMOUNT_MISMATCH: 'Lệch tiền', MISSING_IN_LEDGER: 'Không có trong sổ', MISSING_AT_GATEWAY: 'Có trong sổ, thiếu ở sao kê',
+  ALREADY_SETTLED: 'Đã đối soát trước đó', FEE_EXCEEDS_COD: 'Phí lớn hơn tiền thu hộ',
+};
+
+/** Dán CSV từ ĐVVC / cổng thanh toán — dòng tiêu đề (nếu có) bị bỏ qua, phân cách bằng dấu phẩy, chấm phẩy hoặc tab. */
+function parseCsv(text: string) {
+  return text.split(/\r?\n/).map((l) => l.split(/[,;\t]/).map((c) => c.trim())).filter((c) => c[0] && /\d/.test(c[1] ?? ''));
+}
+
+function Reconciliation({ period }: { period: string }) {
+  const [kind, setKind] = useState<'cod' | 'gateway'>('cod');
+  const [partner, setPartner] = useState('GHN');
+  const [batch, setBatch] = useState('');
+  const [csv, setCsv] = useState('');
+  const rows = parseCsv(csv);
+  const run = useMutation({
+    mutationFn: (): Promise<ReconResult> => (kind === 'cod'
+      ? api.post<ReconResult>('/accounting/admin/cod-reconciliation', {
+        carrier: partner, batchRef: batch || `DS-${new Date().toISOString().slice(0, 10)}`,
+        rows: rows.map((c) => ({ orderId: c[0], codAmount: Number(c[1]), fee: Number(c[2] || 0) })),
+      })
+      : api.post<ReconResult>('/accounting/admin/reconciliation', {
+        provider: partner, period, rows: rows.map((c) => ({ ref: c[0], amount: Number(c[1]) })),
+      })),
+    onSuccess: () => toast.success('Đã đối soát'),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const res = run.data;
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-3 p-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Field label="Loại" htmlFor="rk"><Select id="rk" value={kind} onChange={(e) => { setKind(e.target.value as 'cod' | 'gateway'); setPartner(e.target.value === 'cod' ? 'GHN' : 'vnpay'); }}>
+            <option value="cod">COD với đơn vị vận chuyển</option><option value="gateway">Sao kê cổng thanh toán</option></Select></Field>
+          <Field label={kind === 'cod' ? 'Đơn vị vận chuyển' : 'Cổng thanh toán'} htmlFor="rp"><Input id="rp" value={partner} onChange={(e) => setPartner(e.target.value)} /></Field>
+          {kind === 'cod' && <Field label="Mã đợt bảng kê" htmlFor="rb"><Input id="rb" placeholder="vd DS-2026-11-20" value={batch} onChange={(e) => setBatch(e.target.value)} /></Field>}
+        </div>
+        <Field label={kind === 'cod' ? 'Bảng kê (mã đơn, tiền thu hộ, phí)' : 'Sao kê (mã checkout, số tiền)'} htmlFor="rc"
+          hint={`${rows.length} dòng hợp lệ · dán thẳng từ Excel/CSV`}>
+          <Textarea id="rc" rows={6} className="font-mono" value={csv} onChange={(e) => setCsv(e.target.value)}
+            placeholder={kind === 'cod' ? 'ma_don,tien_thu_ho,phi\n01934f6e-…,500000,8000' : 'checkout_id,so_tien\n01934f6e-…,1030000'} />
+        </Field>
+        <Button className="self-end" onClick={() => run.mutate()} disabled={!rows.length || run.isPending}><FileCheck2 className="size-4" />Đối soát</Button>
+      </Card>
+      {res && (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {res.settled != null && <Stat label="Đã quyết toán" value={String(res.settled)} tone="success" />}
+            {res.received != null && <Stat label="Thực nhận" value={formatVND(res.received)} />}
+            {res.summary && Object.entries(res.summary).map(([k, v]) => <Stat key={k} label={REASON_VI[k] ?? (k === 'MATCHED' ? 'Khớp' : k)} value={String(v)} tone={k === 'MATCHED' ? 'success' : 'danger'} />)}
+            <Stat label="Ngoại lệ" value={String(res.exceptions.length)} tone={res.exceptions.length ? 'danger' : 'success'} />
+          </div>
+          <DataTable rows={res.exceptions} rowKey={(e) => `${e.orderId ?? e.ref}-${e.reason ?? e.status}`}
+            empty={<EmptyState icon={<FileCheck2 className="size-6" />} title="Không có ngoại lệ" />}
+            columns={[
+              { key: 'ref', header: kind === 'cod' ? 'Mã đơn' : 'Mã checkout', primary: true, cell: (e) => <span className="font-mono text-xs break-all">{e.orderId ?? e.ref}</span> },
+              { key: 'why', header: 'Lý do', badge: true, cell: (e) => <Badge tone="danger">{REASON_VI[e.reason ?? e.status ?? ''] ?? e.reason ?? e.status}</Badge> },
+              { key: 'ledger', header: 'Trong sổ', align: 'right', cell: (e) => { const v = e.ledger ?? e.ledger_amount; return v == null ? '—' : formatVND(v); } },
+              { key: 'partner', header: kind === 'cod' ? 'Bảng kê ĐVVC' : 'Sao kê', align: 'right', cell: (e) => { const v = e.carrier ?? e.gateway_amount; return v == null ? '—' : formatVND(v); } },
+            ]} />
+        </>
+      )}
+    </div>
   );
 }
