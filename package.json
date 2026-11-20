@@ -7,7 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "typecheck": "pnpm -r --parallel --filter \"./packages/*\" --filter \"./services/*\" run typecheck",
-    "test": "pnpm -r --filter \"./packages/*\" --filter \"./services/*\" run test",
+    "test": "pnpm -r --filter \"./packages/*\" --filter \"./services/*\" --filter \"./apps/*\" run test",
     "build": "pnpm -r --filter \"./services/*\" run build",
     "infra:up": "docker compose -f deploy/compose/infra.yml up -d",
     "infra:down": "docker compose -f deploy/compose/infra.yml down",
