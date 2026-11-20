@@ -140,6 +140,10 @@ capacity:
   lookback_days: 8
   headroom: 0.3
   default_rps_per_pod: 50
+  # flash sale đã lên lịch (promotion) nhân hệ số tăng tải vào dự báo của các service trên đường mua hàng;
+  # hệ số học từ các sale đã qua (rps trong sale / cùng giờ hôm trước), chưa có lịch sử → mặc định
+  default_event_uplift: 2.0
+  event_services: [api-gateway, catalog, search, cart, promotion, order, inventory, payment]
   services:
     api-gateway: {rps_per_pod: 150, min: 2, max: 12}   # khớp keda.rpsPerPod của chart
     catalog: {rps_per_pod: 100, min: 2, max: 10}

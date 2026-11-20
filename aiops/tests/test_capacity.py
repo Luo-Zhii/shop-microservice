@@ -69,3 +69,59 @@ def test_endpoint_sets_keda_gauge(tmp_path):
         assert cat["service"] == "catalog" and cat["model"] == "holt-winters" and cat["rps_per_pod"] == 100
         assert 2 <= cat["recommended_min_replicas"] <= 10
         assert 'aiops_forecast_rps{service="catalog"}' in c.get("/metrics").text
+
+
+def test_flash_sale_uplift_learned_and_applied(tmp_path):
+    """Hai flash sale quá khứ ×3 tải → học hệ số ≈3; sale sắp tới trong horizon → đỉnh dự báo ≈3× nền, service ngoài
+    đường mua hàng không bị nhân; promotion lỗi → vẫn dự báo (không có biến ngoại sinh)."""
+    from datetime import datetime, timezone
+
+    from aiops.agent.kube import RecordingBackend, StaticInspector
+    from aiops.agent.notifier import Notifier
+    from aiops.api import create_app
+    from aiops.capacity import apply_events, event_uplift
+    from aiops.collectors.prometheus import PrometheusClient
+    from aiops.config import load_settings
+    from aiops.llm import NoneProvider
+
+    now = 1_800_000_000.0 - (1_800_000_000.0 % 86400)      # nửa đêm UTC cho dễ tính khung giờ
+    start = now - 8 * 86400
+    rng = np.random.default_rng(5)
+    base = 100 + rng.normal(0, 3, 8 * DAY)
+    x = base.copy()
+    sales = [(start + d * 86400 + 13 * 3600, start + d * 86400 + 14 * 3600) for d in (3, 6)]   # 20h–21h giờ VN
+    for s0, s1 in sales:
+        x[int((s0 - start) // STEP): int((s1 - start) // STEP)] *= 3
+    assert abs(event_uplift(x, start, STEP, sales) - 3.0) < 0.2
+    assert event_uplift(x, start, STEP, [(start + 3600, start + 7200)]) is None          # không có hôm trước để so
+    assert apply_events([10.0, 10.0, 10.0], now, STEP, [(now + STEP, now + 2 * STEP)], 3.0) == [10.0, 30.0, 10.0]
+
+    iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+    upcoming = (now + 1800, now + 5400)
+
+    def prom(req):
+        mk = lambda svc: {"metric": {"service": svc}, "values": [[start + i * STEP, str(v)] for i, v in enumerate(x)]}  # noqa: E731
+        return httpx.Response(200, json={"status": "success", "data": {"resultType": "matrix", "result": [mk("catalog"), mk("review")]}})
+
+    def promo(req, down=False):
+        assert req.headers["x-internal-token"] == "it"
+        evs = [{"startsAt": iso(a), "endsAt": iso(b)} for a, b in sales + [upcoming]]
+        return httpx.Response(200, json={"items": evs})
+
+    import os
+    os.environ["INTERNAL_TOKEN"] = "it"
+    s = load_settings()
+    s.db_url, s.audit_log, s.detector_enabled = f"sqlite:///{tmp_path / 'i.db'}", str(tmp_path / "a.jsonl"), False
+    deps = dict(loki=None, inspector=StaticInspector(), backend=RecordingBackend(), notifier=Notifier("", "", enabled=False),
+                llm=NoneProvider(), clock=lambda: now, prom=PrometheusClient("http://p", transport=httpx.MockTransport(prom)))
+    with TestClient(create_app(s, promotion_transport=httpx.MockTransport(promo), **deps)) as c:
+        r = c.get("/capacity/forecast?hours=2").json()
+        by = {i["service"]: i for i in r["items"]}
+        assert r["upcoming_flash_sales"] == 1 and r["past_flash_sales"] == 2
+        assert abs(by["catalog"]["event_uplift"] - 3.0) < 0.2 and by["catalog"]["peak"] > 250
+        assert by["review"]["event_uplift"] is None and by["review"]["peak"] < 150
+    s.db_url = f"sqlite:///{tmp_path / 'j.db'}"
+    with TestClient(create_app(s, promotion_transport=httpx.MockTransport(lambda r: httpx.Response(503)), **deps)) as c:
+        r = c.get("/capacity/forecast?hours=2").json()
+        assert r["upcoming_flash_sales"] == 0 and r["items"][0]["event_uplift"] is None
+    os.environ.pop("INTERNAL_TOKEN")

@@ -280,6 +280,15 @@ test('CRUD voucher: phân quyền seller/admin, GET /vouchers?shopId, xoá vouch
 
   const fs = (await app.inject({ method: 'GET', url: '/admin/flash-sales', headers: auth(adminT) })).json();
   assert.ok(fs.items.length >= 3);
+  // lịch flash sale cho AIOps: chỉ nội bộ, lọc theo cửa sổ thời gian
+  const from = new Date(Date.now() - 86_400_000).toISOString();
+  const to = new Date(Date.now() + 86_400_000).toISOString();
+  const win = await app.inject({ method: 'GET', url: `/internal/flash-sales/window?from=${from}&to=${to}`, headers: INTERNAL });
+  assert.equal(win.statusCode, 200, win.body);
+  assert.ok(win.json().items.length >= 1 && 'startsAt' in win.json().items[0] && typeof win.json().items[0].items === 'number');
+  assert.equal((await app.inject({ method: 'GET', url: `/internal/flash-sales/window?from=${from}&to=${to}` })).statusCode, 403);
+  const far = new Date(Date.now() + 365 * 86_400_000).toISOString();
+  assert.equal((await app.inject({ method: 'GET', url: `/internal/flash-sales/window?from=${far}&to=${far.replace(/^\d{4}/, (y) => String(Number(y) + 1))}`, headers: INTERNAL })).json().items.length, 0);
 });
 
 test('sweeper nhả voucher LOCKED bị bỏ quên sau TTL; order.confirmed tới muộn vẫn chuyển USED', async () => {

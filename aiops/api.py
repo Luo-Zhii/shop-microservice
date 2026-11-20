@@ -99,6 +99,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     settings = settings or load_settings()
     gitops = deps.pop("gitops", None)
     deps_accounting_transport = deps.pop("accounting_transport", None)
+    deps_promotion_transport = deps.pop("promotion_transport", None)
     engine, responder = build(settings, **deps)
     ag = settings.section("agent")
     gcfg = ag.get("gitops") or {}
@@ -123,6 +124,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     app = FastAPI(title="ShopNow AIOps", version=__version__, lifespan=lifespan)
     app.state.engine, app.state.responder = engine, responder
     app.state.accounting_transport = deps_accounting_transport
+    app.state.promotion_transport = deps_promotion_transport
     _setup_tracing(app)
 
     @app.middleware("http")
@@ -347,7 +349,9 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     # ---------------------------------------------------------------- dự báo dung lượng (predictive autoscaling)
     @app.get("/capacity/forecast")
     def capacity_forecast(hours: float = Query(1.0, gt=0, le=6)):
-        from .capacity import forecast, recommend
+        from datetime import datetime, timezone
+
+        from .capacity import apply_events, event_uplift, forecast, recommend
         from .metrics import FORECAST_RPS, FORECAST_REPLICAS
 
         if responder.prom is None:
@@ -356,19 +360,42 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         step, now = int(cap.get("step_seconds", 900)), responder.clock()
         _, series = responder.prom.range_by_label(
             "sum by (service) (rate(http_server_requests_seconds_count[5m]))", now - int(cap.get("lookback_days", 8)) * 86400, now, step)
+        # lịch flash sale (promotion) = biến ngoại sinh: quá khứ để học hệ số tăng tải, sắp tới để nhân vào dự báo
+        start, horizon_s = now - int(cap.get("lookback_days", 8)) * 86400, int(hours * 3600)
+        past, upcoming = [], []
+        try:
+            iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+            with httpx.Client(base_url=os.getenv("PROMOTION_URL", "http://promotion:8108"), timeout=5,
+                              headers={"x-internal-token": os.getenv("INTERNAL_TOKEN", "")},
+                              transport=app.state.promotion_transport) as pc:
+                r = pc.get("/internal/flash-sales/window", params={"from": iso(start), "to": iso(now + horizon_s)})
+                r.raise_for_status()
+            for ev in r.json()["items"]:
+                se = (parse_ts(ev["startsAt"]), parse_ts(ev["endsAt"]))
+                (past if se[1] <= now else upcoming).append(se)
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            log.warning("không lấy được lịch flash sale: %s — dự báo không có biến ngoại sinh", e)
+        event_services = set(cap.get("event_services") or [])
         out = []
         for svc, arr in sorted(series.items()):
             if np.count_nonzero(~np.isnan(arr)) < 24:
                 continue
-            fc = forecast(arr, step, int(hours * 3600))
+            fc = forecast(arr, step, horizon_s)
+            uplift = None
+            if svc in event_services and upcoming:
+                uplift = event_uplift(arr, start, step, past) or float(cap.get("default_event_uplift", 2.0))
+                fc["forecast"] = apply_events(fc["forecast"], now + step, step, upcoming, uplift)
+                fc["peak"] = max(fc["forecast"])
             sv = (cap.get("services") or {}).get(svc) or {}
             rpp = float(sv.get("rps_per_pod", cap.get("default_rps_per_pod", 50)))
             rep = recommend(fc["peak"], fc["rmse"], rpp, int(sv.get("min", 2)), int(sv.get("max", 10)), float(cap.get("headroom", 0.3)))
             FORECAST_RPS.labels(svc).set(fc["peak"])
             FORECAST_REPLICAS.labels(svc).set(rep)
             out.append({"service": svc, **{k: fc[k] for k in ("model", "current", "peak", "rmse")}, "rps_per_pod": rpp,
-                        "recommended_min_replicas": rep, "scale_up_ahead": fc["peak"] > fc["current"] * 1.3})
-        return {"horizon_hours": hours, "step_seconds": step, "items": out}
+                        "recommended_min_replicas": rep, "scale_up_ahead": fc["peak"] > fc["current"] * 1.3,
+                        "event_uplift": uplift})
+        return {"horizon_hours": hours, "step_seconds": step, "upcoming_flash_sales": len(upcoming),
+                "past_flash_sales": len(past), "items": out}
 
     # ---------------------------------------------------------------- bàn giao ca trực
     @app.get("/reports/oncall-digest")

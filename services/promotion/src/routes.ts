@@ -144,6 +144,15 @@ export function registerRoutes(app: FastifyInstance, deps: { pool: Pool; auth: A
 
   app.get('/flash-sales/active', async () => ({ items: await flashSalesOut('WHERE active AND starts_at <= now() AND ends_at > now()', []) }));
 
+  // ---------------- Nội bộ: lịch flash sale cho AIOps (dự báo dung lượng coi flash sale là biến ngoại sinh) ----------------
+  app.get('/internal/flash-sales/window', { preHandler: auth.internalOnly }, async (req) => {
+    const q = z.object({ from: z.string().datetime(), to: z.string().datetime() }).parse(req.query);
+    const { rows } = await pool.query(
+      `SELECT s.id, s.name, s.starts_at, s.ends_at, (SELECT count(*)::int FROM flash_sale_items i WHERE i.flash_sale_id = s.id) AS items
+         FROM flash_sales s WHERE s.active AND s.ends_at > $1 AND s.starts_at < $2 ORDER BY s.starts_at`, [q.from, q.to]);
+    return { items: rows.map((r) => ({ id: r.id, name: r.name, startsAt: r.starts_at, endsAt: r.ends_at, items: r.items })) };
+  });
+
   // ---------------- Nội bộ: báo giá cho order ----------------
   app.post('/quote', { preHandler: auth.internalOnly }, async (req) => quote({ pool, flash }, quoteSchema.parse(req.body)));
 

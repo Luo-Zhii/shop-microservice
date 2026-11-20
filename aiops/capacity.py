@@ -75,3 +75,24 @@ def recommend(peak: float, rmse: float, rps_per_pod: float, min_r: int, max_r: i
     """Đỉnh dự báo + 1 RMSE (đề phòng dự báo thấp) + headroom, chia công suất mỗi pod."""
     need = (peak + rmse) * (1 + headroom) / max(rps_per_pod, 1e-9)
     return int(min(max_r, max(min_r, math.ceil(need))))
+
+
+# ---------------------------------------------------------------- sự kiện ngoại sinh (flash sale đã lên lịch)
+def event_uplift(series: np.ndarray, start: float, step: int, past: list[tuple[float, float]], season_s: int = 86400) -> float | None:
+    """Hệ số tăng tải học từ các flash sale đã qua: trung vị (rps trong sale / rps cùng khung giờ hôm trước)."""
+    x = np.asarray(series, dtype=float)
+    ratios = []
+    for s, e in past:
+        i0, i1 = int((s - start) // step), int(math.ceil((e - start) / step))
+        j0, j1 = i0 - season_s // step, i1 - season_s // step
+        if j0 < 0 or i1 > len(x) or i1 <= i0:
+            continue
+        a, b = np.nanmean(x[i0:i1]), np.nanmean(x[j0:j1])
+        if np.isfinite(a) and np.isfinite(b) and b > 0:
+            ratios.append(a / b)
+    return round(float(np.median(ratios)), 3) if ratios else None
+
+
+def apply_events(fc: list[float], fc_start: float, step: int, upcoming: list[tuple[float, float]], uplift: float) -> list[float]:
+    """Nhân hệ số tăng tải vào các bước dự báo rơi trong khung flash sale sắp tới."""
+    return [round(v * uplift, 3) if any(s <= fc_start + h * step < e for s, e in upcoming) else v for h, v in enumerate(fc)]
