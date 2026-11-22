@@ -191,3 +191,32 @@ def test_slo_status_from_sloth_rules(tmp_path):
         assert by["gateway-availability"]["state"] == "exhausted"
         assert by["web-lcp-good"]["state"] == "fast_burn" and by["web-lcp-good"]["services"] == ["web", "api-gateway"]
         assert by["order-saga-success"]["state"] == "healthy" and by["order-saga-success"]["objective"] == 0.99
+
+
+def test_risk_model_learns_from_deploy_history(tmp_path):
+    """Vòng học: deploy có migration ở catalog thường gây sự cố trong 2h, deploy nhỏ thì không → học được trọng số
+    migration lớn hơn prior; ít dữ liệu thì từ chối học; /change-risk dùng trọng số đã học."""
+    from aiops.change_risk import PRIOR
+
+    from .test_mcp_investigator import make_app
+
+    with make_app(tmp_path) as c:
+        st = c.app.state.responder.store
+        base = 1_790_000_000.0
+        r = c.post("/change-risk/fit?min_records=30").json()
+        assert r["fitted"] is False and r["records"] == 0
+        for k in range(40):
+            at = base + k * 6 * 3600
+            mig = k % 2 == 0
+            files = ([{"path": "services/catalog/migrations/0%d.sql" % k, "lines": 80}] if mig else []) + \
+                    [{"path": "services/catalog/src/a.ts", "lines": 30}, {"path": "services/catalog/test/a.test.ts", "lines": 20}]
+            c.post("/change-risk/deploys", json={"files": files, "at": at, "ref": f"d{k}"})
+            if mig and k % 4 == 0:   # một nửa deploy có migration gây sự cố trong 1 giờ
+                st.create_incident(service="catalog", namespace="shopnow", severity="critical", title="x", source="test",
+                                   detected_at=at + 1800, alerts=[])
+        c.app.state.responder.clock = lambda: base + 41 * 6 * 3600
+        r = c.post("/change-risk/fit?min_records=30").json()
+        assert r["labeled_now"] == 40 and r["positives"] == 10 and r["fitted"] is True
+        assert r["weights"]["migration"] > PRIOR["migration"] and r["logloss_fit"] <= r["logloss_prior"]
+        scored = c.post("/change-risk", json={"files": [{"path": "services/catalog/migrations/099.sql", "lines": 80}]}).json()
+        assert scored["weights_source"] == "fitted"

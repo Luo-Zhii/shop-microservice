@@ -151,3 +151,12 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+
+
+def log_loss(X: list[dict[str, float]], y: list[int], w: dict[str, float]) -> float:
+    eps = 1e-9
+    tot = 0.0
+    for x, t in zip(X, y):
+        p = 1 / (1 + math.exp(-(w["bias"] + sum(w[k] * x[k] for k in FEATURES))))
+        tot += -(t * math.log(p + eps) + (1 - t) * math.log(1 - p + eps))
+    return tot / max(1, len(y))

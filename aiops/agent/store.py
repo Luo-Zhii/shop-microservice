@@ -26,10 +26,16 @@ DDL = [
         remediation TEXT, evidence TEXT, grounding DOUBLE PRECISION, cost TEXT, pr TEXT, created_at DOUBLE PRECISION,
         updated_at DOUBLE PRECISION)""",
     "CREATE INDEX IF NOT EXISTS investigations_incident_idx ON investigations (incident_id)",
+    """CREATE TABLE IF NOT EXISTS deploy_records (
+        id TEXT PRIMARY KEY, ref TEXT, services TEXT, features TEXT, probability DOUBLE PRECISION,
+        deployed_at DOUBLE PRECISION, label INTEGER, labeled_at DOUBLE PRECISION)""",
+    """CREATE TABLE IF NOT EXISTS risk_models (
+        id TEXT PRIMARY KEY, weights TEXT, n INTEGER, positives INTEGER, logloss_prior DOUBLE PRECISION,
+        logloss_fit DOUBLE PRECISION, created_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
-JSON_COLS = {"steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
+JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
 OPEN = ("open", "acknowledged", "mitigated")
@@ -182,6 +188,32 @@ class IncidentStore:
         rows = self._exec("SELECT * FROM investigations WHERE incident_id = ? ORDER BY created_at DESC",
                           (incident_id,))
         return [self._dec(r) for r in rows]
+
+    # ---- học trọng số rủi ro thay đổi ----
+    def add_deploy(self, ref: str, services: list[str], features: dict, probability: float, deployed_at: float) -> dict:
+        row = {"id": uuid7(), "ref": ref, "services": services, "features": features, "probability": probability,
+               "deployed_at": deployed_at, "label": None, "labeled_at": None}
+        self._insert("deploy_records", row)
+        return row
+
+    def deploys(self, unlabeled_before: float | None = None) -> list[dict]:
+        if unlabeled_before is None:
+            return [self._dec(r) for r in self._exec("SELECT * FROM deploy_records ORDER BY deployed_at")]
+        return [self._dec(r) for r in self._exec(
+            "SELECT * FROM deploy_records WHERE label IS NULL AND deployed_at < ? ORDER BY deployed_at", (unlabeled_before,))]
+
+    def label_deploy(self, id_: str, label: int, at: float) -> None:
+        self._update("deploy_records", id_, {"label": label, "labeled_at": at})
+
+    def save_model(self, weights: dict, n: int, positives: int, ll_prior: float, ll_fit: float, at: float) -> dict:
+        row = {"id": uuid7(), "weights": weights, "n": n, "positives": positives, "logloss_prior": ll_prior,
+               "logloss_fit": ll_fit, "created_at": at}
+        self._insert("risk_models", row)
+        return row
+
+    def latest_model(self) -> dict | None:
+        rows = self._exec("SELECT * FROM risk_models ORDER BY created_at DESC LIMIT 1")
+        return self._dec(rows[0]) if rows else None
 
     def audit(self, actor: str, event: str, incident_id: str | None = None, action_id: str | None = None,
               details: dict | None = None) -> dict:

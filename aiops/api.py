@@ -12,7 +12,8 @@ GET  /incidents/{id}/similar            sự cố tương tự đã đóng (dấ
 GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ dữ liệu sự cố
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
-POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
+POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất (trọng số đã học nếu có)
+POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật → gắn nhãn sau 2h → học lại trọng số
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
@@ -321,7 +322,58 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                 for s in set(svcs) & set(ch.services()):
                     if slo in remaining:
                         budget[s] = min(budget.get(s, 1.0), remaining[slo])
-        return {"services": ch.services(), "incidents_30d": ch.incidents_30d, **score(ch.features(), budget=budget or None)}
+        model = responder.store.latest_model()
+        weights = model["weights"] if model else None
+        return {"services": ch.services(), "incidents_30d": ch.incidents_30d, "weights_source": "fitted" if model else "prior",
+                **score(ch.features(), weights, budget=budget or None)}
+
+    @app.post("/change-risk/deploys")
+    async def record_deploy(request: Request):
+        """CD gọi khi một thay đổi THỰC SỰ được triển khai → lưu đặc trưng để học trọng số (nhãn gắn sau 2 giờ)."""
+        from datetime import datetime
+
+        from .change_risk import Change, score
+
+        body = await request.json()
+        files = [(str(f["path"]), int(f.get("lines", 0))) for f in (body.get("files") or [])][:5000]
+        if not files:
+            return err(400, "VALIDATION_ERROR", "cần danh sách files [{path, lines}]")
+        at = parse_ts(body.get("at")) or responder.clock()
+        ch = Change(files, when=datetime.fromtimestamp(at).astimezone())
+        since = at - 30 * 86400
+        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
+        x = ch.features()
+        rec = responder.store.add_deploy(str(body.get("ref") or ""), ch.services(), x, score(x)["probability"], at)
+        return {"id": rec["id"], "services": rec["services"], "probability": rec["probability"]}
+
+    @app.post("/change-risk/fit")
+    def fit_risk(window_hours: float = Query(2.0, gt=0, le=48), min_records: int = Query(30, ge=5, le=10000)):
+        """Gắn nhãn deploy đã quá `window_hours` (có sự cố ở service liên quan trong cửa sổ → 1) rồi học lại trọng số.
+        Chỉ lưu mô hình mới nếu log-loss không tệ hơn prior trên cùng dữ liệu (chặn mô hình học hỏng)."""
+        from .change_risk import FEATURES, PRIOR, fit, log_loss
+
+        now, win = responder.clock(), window_hours * 3600
+        labeled_now = 0
+        for d in responder.store.deploys(unlabeled_before=now - win):
+            hit = any(i["detected_at"] <= d["deployed_at"] + win
+                      for s in d["services"] for i in responder.store.list_incidents(service=s, since=d["deployed_at"], limit=50))
+            responder.store.label_deploy(d["id"], int(hit), now)
+            labeled_now += 1
+        data = [d for d in responder.store.deploys() if d["label"] is not None]
+        pos = sum(d["label"] for d in data)
+        out = {"labeled_now": labeled_now, "records": len(data), "positives": pos}
+        if len(data) < min_records or pos == 0 or pos == len(data):
+            return {**out, "fitted": False, "reason": f"cần ≥ {min_records} deploy đã gắn nhãn và có cả hai lớp"}
+        X = [{k: float(d["features"].get(k, 0.0)) for k in FEATURES} for d in data]
+        y = [int(d["label"]) for d in data]
+        w = fit(X, y)
+        ll_prior, ll_fit = log_loss(X, y, PRIOR), log_loss(X, y, w)
+        if ll_fit > ll_prior:
+            return {**out, "fitted": False, "reason": "mô hình mới không tốt hơn prior", "logloss_prior": round(ll_prior, 4),
+                    "logloss_fit": round(ll_fit, 4)}
+        responder.store.save_model(w, len(data), pos, ll_prior, ll_fit, now)
+        responder.store.audit("aiops", "risk_model_fitted", details={"n": len(data), "positives": pos, "logloss": [ll_prior, ll_fit]})
+        return {**out, "fitted": True, "weights": w, "logloss_prior": round(ll_prior, 4), "logloss_fit": round(ll_fit, 4)}
 
     # ---------------------------------------------------------------- kiểm toán sổ cái
     @app.get("/audit/ledger")
