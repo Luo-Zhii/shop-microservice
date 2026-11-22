@@ -165,8 +165,32 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         ok = checks["store"]
         return JSONResponse(status_code=200 if ok else 503, content={"status": "ok" if ok else "degraded", "checks": checks})
 
+    dora_cache = {"at": 0.0}
+
+    def refresh_dora() -> None:
+        """Gauge DORA cho Prometheus/Grafana — tính lại tối đa 5 phút/lần (scrape 30s không phải quét DB mỗi lần)."""
+        from .dora import BANDS, report
+        from .metrics import DORA_BAND, DORA_VALUE
+
+        now = responder.clock()
+        if now - dora_cache["at"] < 300:
+            return
+        dora_cache["at"] = now
+        envs = [None] + sorted({d["environment"] for d in responder.store.deploys() if d.get("environment")})
+        DORA_VALUE.clear()
+        DORA_BAND.clear()
+        for env in envs:
+            for k, m in report(responder.store, now, 30, env)["metrics"].items():
+                if m["value"] is not None:
+                    DORA_VALUE.labels(k, env or "all").set(m["value"])
+                    DORA_BAND.labels(k, env or "all").set(BANDS.index(m["band"]))
+
     @app.get("/metrics")
     def metrics():
+        try:
+            refresh_dora()
+        except Exception as e:  # noqa: BLE001 - lỗi DB không được làm hỏng scrape các metric khác
+            log.warning("tính DORA cho /metrics lỗi: %s", e)
         return PlainTextResponse(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # ---------------------------------------------------------------- webhook

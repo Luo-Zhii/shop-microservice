@@ -33,3 +33,6 @@ LEDGER_FINDINGS = Counter("aiops_ledger_findings_total", "Phát hiện bất th�
 CORRELATED = Counter("aiops_alerts_correlated_total", "Alert gộp vào sự cố của service liền kề (giảm bão cảnh báo)", ["service"])
 FORECAST_RPS = Gauge("aiops_forecast_rps", "Đỉnh rps dự báo trong horizon (Holt-Winters) — KEDA dùng để scale trước", ["service"])
 FORECAST_REPLICAS = Gauge("aiops_forecast_replicas", "Số replica tối thiểu đề xuất theo dự báo", ["service"])
+DORA_VALUE = Gauge("aiops_dora_value", "Chỉ số DORA 30 ngày (tần suất: deploy/ngày; lead time, khôi phục: giây; CFR: tỉ lệ)",
+                   ["metric", "environment"])
+DORA_BAND = Gauge("aiops_dora_band", "Mức DORA: 0=elite 1=high 2=medium 3=low", ["metric", "environment"])

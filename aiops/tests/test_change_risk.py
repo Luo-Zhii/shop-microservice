@@ -235,6 +235,10 @@ def test_risk_model_learns_from_deploy_history(tmp_path):
         dora = c.get("/reports/dora?days=30&environment=staging").json()
         assert dora["counts"]["deploys"] == 1 and dora["metrics"]["lead_time"]["value"] == 5400
         assert dora["metrics"]["lead_time"]["band"] == "elite" and dora["overall"] is None
+        c.app.state.responder.clock = lambda: base + 41 * 6 * 3600 + 3600   # quá cache 5 phút
+        text = c.get("/metrics").text
+        assert 'aiops_dora_value{environment="staging",metric="lead_time"} 5400.0' in text
+        assert 'aiops_dora_band{environment="staging",metric="lead_time"} 0.0' in text and 'environment="all"' in text
 
 
 def test_fit_labels_use_rca_root_cause(tmp_path):
