@@ -271,3 +271,37 @@ test('đối soát cổng thanh toán: khớp, lệch tiền, thiếu ở sổ, 
   assert.equal(s.MISSING_IN_LEDGER, 1);
   assert.ok(s.MISSING_AT_GATEWAY >= 1); // checkout của test VNPAY phía trên không có trong sao kê
 });
+
+test('checklist sẵn sàng khoá sổ: chặn vs cảnh báo (thu hộ treo, COD chưa trả, chưa đối soát, thuế lệch HĐĐT)', async () => {
+  const p3 = await freshTestDb('accounting_test_ready', join(__dirname, '../migrations'));
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    // 01/10: thu tiền trực tuyến nhưng đơn không bao giờ hoàn tất/hoàn tiền → 3388 treo
+    await withTx(p3, (c) => postEntry(c, { date: '2026-10-01', source: 'manual', sourceRef: 'R-1', description: 'thu', createdBy: 't',
+      lines: [{ account: '1121', debit: 500_000 }, { account: '3388', credit: 500_000, partyType: 'checkout', partyId: 'co-1' }] }, today));
+    // 02/10: COD đã giao, ĐVVC chưa trả tiền → 1388 mở
+    await withTx(p3, (c) => postEntry(c, { date: '2026-10-02', source: 'manual', sourceRef: 'R-2', description: 'cod', createdBy: 't',
+      lines: [{ account: '1388', debit: 300_000, orderId: 'o-9' }, { account: '3388', credit: 300_000, partyType: 'checkout', partyId: 'co-2' }] }, today));
+    const app3 = createService('accounting-test-3').app;
+    registerRoutes(app3, { pool: p3, auth: createAuth(jwks.authOptions), tz: R.tz });
+    await app3.ready();
+    const get = async (p: string) => (await app3.inject({ method: 'GET', url: `/admin/periods/${p}/readiness`, headers: { authorization: `Bearer ${acct}` } })).json();
+    const oct = await get('2026-10');
+    const by = Object.fromEntries(oct.checks.map((c: { key: string }) => [c.key, c]));
+    assert.equal(oct.ready, true); // mọi điều kiện chặn đạt → khoá được
+    assert.ok(by.trial_balance.ok && by.ledger_integrity.ok && by.previous_closed.ok && by.period_ended.ok);
+    assert.equal(by.escrow_stale.ok, false);
+    assert.match(by.escrow_stale.detail, /2 checkout, 800000/);
+    assert.equal(by.cod_open.ok, false);
+    assert.equal(by.gateway_recon.ok, false);
+    assert.match(by.gateway_recon.detail, /chưa đối soát/);
+    assert.equal(oct.warnings, 3);
+    // kỳ hiện tại chưa kết thúc → bị chặn
+    const cur = await get(today.slice(0, 7));
+    assert.equal(cur.ready, false);
+    assert.equal(cur.checks.find((c: { key: string }) => c.key === 'period_ended').ok, false);
+    await app3.close();
+  } finally {
+    await p3.end();
+  }
+});

@@ -37,6 +37,7 @@ const fixtures = [
   [/accounting\/admin\/cod-reconciliation/, { settled: 1, received: 492000, exceptions: [{ orderId: '01934f6e-aaaa-7bbb-8ccc-000000000002', reason: 'AMOUNT_MISMATCH', ledger: 300000, carrier: 299000 }, { orderId: 'don-la-rat-dai-khong-co-trong-so-sach-ke-toan', reason: 'MISSING_IN_LEDGER', ledger: null, carrier: 100000 }] }],
   [/accounting\/admin\/payables\/aging/, { asOf: '2026-11-20', overdueDays: 15, totals: { '0-7': 300000000, '8-15': 0, '16-30': 0, '>30': 150000000 }, items: [{ shopId: id(5), balance: 450000000, buckets: { '0-7': 300000000, '8-15': 0, '16-30': 0, '>30': 150000000 }, oldestDays: 31, overdue: 150000000 }] }],
   [/accounting\/admin\/payables/, { items: [{ shopId: id(5), accrued: 950000000, paid: 900000000, balance: 50000000 }] }],
+  [/accounting\/admin\/periods\/[^/]+\/readiness/, { ready: false, warnings: 1, checks: [{ key: 'trial_balance', label: 'Bảng cân đối số phát sinh cân', ok: true, blocking: true }, { key: 'escrow_stale', label: 'Không có tiền thu hộ (3388) treo quá 15 ngày', ok: false, blocking: false, detail: '2 checkout, 800000 đ — đơn chưa hoàn tất/hoàn tiền rất dài để thử xuống dòng trên điện thoại' }, { key: 'ledger_integrity', label: 'Chuỗi hash sổ cái nguyên vẹn', ok: false, blocking: true, detail: '1 bút toán có vấn đề' }] }],
   [/accounting\/admin\/periods/, { items: [{ period: '2026-10', status: 'OPEN', closed_at: null, closed_by: null, closing_hash: null }, { period: '2026-09', status: 'CLOSED', closed_at: new Date().toISOString(), closed_by: 'ketoan.truong@shopnow.local', closing_hash: 'b'.repeat(64) }] }],
   [/accounting\/admin\/integrity/, { ok: false, entries: 120, head: 'c'.repeat(64), problems: [{ entryNo: 'BT-202611-000001', problem: 'nội dung bị sửa (hash không khớp)' }] }],
   [/warehouse\/receipts/, { items: [{ id: id(2), receipt_no: 'PN-20261120-0001', warehouse: 'HCM1', shop_id: id(5), status: 'EXPECTED', created_at: new Date().toISOString(), lines: [{ sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', qty_expected: 120, qty_received: null, qty_damaged: 0, unit_cost: 80000 }] }] }],
@@ -49,6 +50,7 @@ const fixtures = [
 ];
 
 const PAGES = [
+  ['/admin/accounting#readiness', async (p) => { await p.getByRole('tab', { name: 'Khoá sổ & toàn vẹn' }).click(); await p.getByRole('button', { name: 'Khoá sổ' }).locator('visible=true').first().click(); await p.getByText('Còn điều kiện chặn').waitFor({ timeout: 8000 }); }],
   ['/admin/aiops#slo', 'SLO'],
   ['/admin/aiops#capacity', 'Dự báo dung lượng'], ['/admin/aiops#digest', 'Bàn giao ca'],
   ['/admin', null],

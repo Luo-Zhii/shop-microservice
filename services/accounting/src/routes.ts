@@ -222,6 +222,64 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     return { items: rows };
   });
 
+  /**
+   * Checklist sẵn sàng khoá sổ: điều kiện CHẶN (giống hệt điều kiện của /close) + CẢNH BÁO nghiệp vụ nên xử lý trước khi
+   * chốt (đối soát còn ngoại lệ, tiền thu hộ treo lâu, COD ĐVVC chưa trả, thuế đầu ra lệch HĐĐT).
+   */
+  app.get<{ Params: { period: string } }>('/admin/periods/:period/readiness', acct, async (req) => {
+    const p = period.parse(req.params.period);
+    const staleDays = 15;
+    const [y, m] = p.split('-').map(Number);
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); // ngày cuối kỳ
+    const checks: { key: string; label: string; ok: boolean; blocking: boolean; detail?: string }[] = [];
+    const add = (key: string, label: string, ok: boolean, blocking: boolean, detail?: string) => checks.push({ key, label, ok, blocking, detail });
+
+    add('period_ended', 'Kỳ đã kết thúc', p < periodOf(today()), true, p < periodOf(today()) ? undefined : 'chỉ khoá kỳ đã qua');
+    const st = await pool.query<{ status: string }>('SELECT status FROM periods WHERE period = $1', [p]);
+    add('not_closed', 'Kỳ chưa khoá', st.rows[0]?.status !== 'CLOSED', true, st.rows[0]?.status === 'CLOSED' ? 'đã khoá' : undefined);
+    const earlier = await pool.query<{ period: string }>("SELECT period FROM periods WHERE period < $1 AND status = 'OPEN' ORDER BY period LIMIT 1", [p]);
+    add('previous_closed', 'Các kỳ trước đã khoá', !earlier.rowCount, true, earlier.rowCount ? `còn mở: ${earlier.rows[0].period}` : undefined);
+    const tb = await trialBalance(pool, p);
+    add('trial_balance', 'Bảng cân đối số phát sinh cân', tb.balanced, true,
+      tb.balanced ? undefined : `PS Nợ ${tb.totals.debit} ≠ PS Có ${tb.totals.credit}`);
+    const last = await pool.query<{ seq: number }>('SELECT max(seq) AS seq FROM journal_entries WHERE period <= $1', [p]);
+    const chain = await verifyChain(pool, last.rows[0].seq ?? 0);
+    add('ledger_integrity', 'Chuỗi hash sổ cái nguyên vẹn', chain.ok, true, chain.ok ? undefined : `${chain.problems.length} bút toán có vấn đề`);
+
+    const recon = await pool.query<{ id: string; provider: string; n: number }>(
+      `SELECT r.id, r.provider, (SELECT count(*)::int FROM recon_items i WHERE i.run_id = r.id AND i.status <> 'MATCHED') AS n
+         FROM recon_runs r WHERE r.period = $1 ORDER BY r.created_at DESC`, [p]);
+    const latest = new Map<string, number>();
+    for (const r of recon.rows) if (!latest.has(r.provider)) latest.set(r.provider, Number(r.n));
+    const reconExc = [...latest.values()].reduce((a, b) => a + b, 0);
+    add('gateway_recon', 'Đã đối soát cổng thanh toán, không còn ngoại lệ', latest.size > 0 && reconExc === 0, false,
+      latest.size === 0 ? 'chưa đối soát kỳ này' : reconExc ? `${reconExc} dòng ngoại lệ ở lần đối soát gần nhất` : undefined);
+    const escrow = await pool.query<{ n: number; amount: number }>(
+      `SELECT count(*)::int AS n, COALESCE(SUM(bal),0)::bigint AS amount FROM (
+         SELECT l.party_id, SUM(l.credit - l.debit) AS bal, max(e.entry_date) AS last_date
+           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+          WHERE l.account = '3388' AND e.entry_date <= $1 GROUP BY l.party_id) t
+        WHERE bal > 0 AND last_date <= ($1::date - $2::int)`, [end, staleDays]);
+    add('escrow_stale', `Không có tiền thu hộ (3388) treo quá ${staleDays} ngày`, Number(escrow.rows[0].n) === 0, false,
+      Number(escrow.rows[0].n) ? `${escrow.rows[0].n} checkout, ${escrow.rows[0].amount} đ — đơn chưa hoàn tất/hoàn tiền` : undefined);
+    const cod = await pool.query<{ n: number; amount: number }>(
+      `SELECT count(*)::int AS n, COALESCE(SUM(bal),0)::bigint AS amount FROM (
+         SELECT l.order_id, SUM(l.debit - l.credit) AS bal, min(e.entry_date) AS first_date
+           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+          WHERE l.account = '1388' AND e.entry_date <= $1 GROUP BY l.order_id) t
+        WHERE bal > 0 AND first_date <= ($1::date - $2::int)`, [end, staleDays]);
+    add('cod_open', `ĐVVC đã trả COD giao quá ${staleDays} ngày`, Number(cod.rows[0].n) === 0, false,
+      Number(cod.rows[0].n) ? `${cod.rows[0].n} đơn, ${cod.rows[0].amount} đ chưa đối soát COD` : undefined);
+    const vat = await pool.query<{ out_vat: number; inv_vat: number }>(
+      `SELECT (SELECT COALESCE(SUM(l.credit - l.debit),0) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+                WHERE l.account = '33311' AND e.period = $1)::bigint AS out_vat,
+              (SELECT COALESCE(SUM(vat_amount),0) FROM vat_invoices WHERE status = 'ISSUED' AND to_char(issue_date, 'YYYY-MM') = $1)::bigint AS inv_vat`, [p]);
+    const gap = Number(vat.rows[0].out_vat) - Number(vat.rows[0].inv_vat);
+    add('vat_invoices', 'Thuế GTGT đầu ra khớp hoá đơn điện tử', gap === 0, false, gap ? `lệch ${gap} đ (vd phí lưu kho chưa xuất HĐ)` : undefined);
+
+    return { period: p, ready: checks.every((c) => c.ok || !c.blocking), warnings: checks.filter((c) => !c.ok && !c.blocking).length, checks };
+  });
+
   /** Khoá sổ kỳ: bảng cân đối phải cân + chuỗi hash nguyên vẹn; kỳ trước phải khoá trước. */
   app.post<{ Params: { period: string } }>('/admin/periods/:period/close', acct, async (req) => {
     const p = period.parse(req.params.period);

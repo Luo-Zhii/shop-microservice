@@ -1,11 +1,11 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, FileCheck2, Lock, ShieldCheck, ShieldX, Sparkles, Undo2 } from 'lucide-react';
+import { AlertTriangle, BookOpen, CheckCircle2, FileCheck2, Lock, ShieldCheck, ShieldX, Sparkles, Undo2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
-import { Badge, Button, Card, ConfirmSheet, EmptyState, Field, Input, PageTitle, Pagination, QueryView, ReasonSheet, SectionTitle, Select, Tabs, Textarea } from '@/components/ui';
+import { Badge, Button, Card, ConfirmSheet, EmptyState, Field, Input, PageTitle, Pagination, QueryView, ReasonSheet, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate, formatVND, totalPages } from '@/lib/format';
 import { toast } from '@/lib/toast';
@@ -168,6 +168,40 @@ function Payables() {
   );
 }
 
+interface ReadinessCheck { key: string; label: string; ok: boolean; blocking: boolean; detail?: string }
+
+/** Checklist trước khi khoá sổ: điều kiện chặn (khoá sổ sẽ bị từ chối) và cảnh báo nghiệp vụ nên xử lý trước. */
+function CloseReadiness({ period, onClose, onConfirm, closing }: { period: string; onClose: () => void; onConfirm: () => void; closing: boolean }) {
+  const q = useQuery({ queryKey: ['acc-readiness', period], queryFn: () => api.get<{ ready: boolean; warnings: number; checks: ReadinessCheck[] }>(`/accounting/admin/periods/${period}/readiness`) });
+  return (
+    <Sheet open onClose={onClose} title={'Khoá sổ kỳ ' + period}
+      footer={<>
+        <Button variant="outline" onClick={onClose}>Huỷ</Button>
+        <Button variant="danger" onClick={onConfirm} disabled={!q.data?.ready || closing}><Lock className="size-4" />{q.data?.warnings ? 'Vẫn khoá sổ' : 'Khoá sổ'}</Button>
+      </>}>
+      <QueryView q={q}>
+        {(d) => (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted">Sau khi khoá, không ghi thêm bút toán vào kỳ này; chứng từ đến trễ sẽ hạch toán vào kỳ hiện tại.</p>
+            <ul className="flex flex-col gap-2">
+              {d.checks.map((c) => (
+                <li key={c.key} className="flex items-start gap-2 rounded-xl border border-border p-3 text-sm">
+                  {c.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> : c.blocking ? <XCircle className="mt-0.5 size-4 shrink-0 text-danger" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />}
+                  <div className="min-w-0">
+                    <p className="font-medium">{c.label}{!c.ok && <Badge tone={c.blocking ? 'danger' : 'warning'} className="ml-2">{c.blocking ? 'chặn' : 'cảnh báo'}</Badge>}</p>
+                    {c.detail && <p className="break-words text-muted">{c.detail}</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {!d.ready && <p className="text-sm text-danger">Còn điều kiện chặn — chưa khoá được kỳ này.</p>}
+          </div>
+        )}
+      </QueryView>
+    </Sheet>
+  );
+}
+
 function Closing() {
   const qc = useQueryClient();
   const [target, setTarget] = useState<string | null>(null);
@@ -206,9 +240,7 @@ function Closing() {
           )}
         </QueryView>
       </section>
-      <ConfirmSheet open={!!target} onClose={() => setTarget(null)} title={`Khoá sổ kỳ ${target}`} confirmText="Khoá sổ" danger
-        message="Sau khi khoá, không ghi thêm bút toán vào kỳ này; chứng từ đến trễ sẽ hạch toán vào kỳ hiện tại."
-        loading={close.isPending} onConfirm={() => target && close.mutate(target)} />
+      {target && <CloseReadiness period={target} onClose={() => setTarget(null)} closing={close.isPending} onConfirm={() => close.mutate(target)} />}
     </div>
   );
 }
