@@ -28,6 +28,82 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
+  const [view, setView] = useState<'incidents' | 'capacity' | 'digest'>('incidents');
+  return (
+    <div>
+      <PageTitle>AIOps</PageTitle>
+      <Tabs className="mb-4" value={view} onChange={setView}
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+      {view === 'incidents' && <Incidents />}
+      {view === 'capacity' && <Capacity />}
+      {view === 'digest' && <Digest />}
+    </div>
+  );
+}
+
+interface CapacityItem { service: string; model: string; current: number; peak: number; rmse: number; rps_per_pod: number; recommended_min_replicas: number; scale_up_ahead: boolean; event_uplift: number | null }
+
+/** Dự báo rps 1–6 giờ tới (Holt-Winters + lịch flash sale) → replica tối thiểu đề xuất; KEDA đọc cùng số này để scale trước. */
+function Capacity() {
+  const [hours, setHours] = useState('1');
+  const q = useQuery({
+    queryKey: ['aiops-capacity', hours], retry: false,
+    queryFn: () => api.get<{ upcoming_flash_sales: number; past_flash_sales: number; items: CapacityItem[] }>('/aiops/capacity/forecast', { hours: Number(hours) }),
+  });
+  return (
+    <>
+      <Tabs className="mb-3" value={hours} onChange={setHours} items={[{ value: '1', label: '1 giờ tới' }, { value: '3', label: '3 giờ tới' }, { value: '6', label: '6 giờ tới' }]} />
+      <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa đủ dữ liệu để dự báo" description="Cần ít nhất 6 giờ lịch sử lưu lượng trong Prometheus." />}>
+        {(d) => (
+          <>
+            {d.upcoming_flash_sales > 0 && (
+              <Card className="mb-3 p-3 text-sm">
+                <b>{d.upcoming_flash_sales}</b> flash sale sắp diễn ra trong khung dự báo — hệ số tăng tải học từ {d.past_flash_sales} sale đã qua.
+              </Card>
+            )}
+            <DataTable rows={d.items} rowKey={(i) => i.service}
+              columns={[
+                { key: 'svc', header: 'Service', primary: true, cell: (i) => <span className="font-mono text-sm">{i.service}</span> },
+                { key: 'st', header: 'Xu hướng', badge: true, cell: (i) => (i.scale_up_ahead ? <Badge tone="warning">Sắp tăng tải</Badge> : <Badge tone="success">Ổn định</Badge>) },
+                { key: 'cur', header: 'Hiện tại (rps)', align: 'right', cell: (i) => i.current.toFixed(1) },
+                { key: 'peak', header: 'Đỉnh dự báo', align: 'right', cell: (i) => <b>{i.peak.toFixed(1)}</b> },
+                { key: 'up', header: 'Hệ số flash sale', align: 'right', hideOnMobile: true, cell: (i) => (i.event_uplift ? '×' + i.event_uplift.toFixed(2) : '—') },
+                { key: 'rep', header: 'Replica tối thiểu', align: 'right', cell: (i) => <b className="text-primary">{i.recommended_min_replicas}</b> },
+                { key: 'model', header: 'Mô hình', hideOnMobile: true, cell: (i) => <span className="text-xs text-muted">{i.model} · RMSE {i.rmse.toFixed(1)}</span> },
+              ]} />
+          </>
+        )}
+      </QueryView>
+    </>
+  );
+}
+
+/** Bản tin bàn giao ca (cùng nội dung CronJob 8:30 gửi lên kênh trực) — xem trước hoặc gửi ngay. */
+function Digest() {
+  const q = useQuery({ queryKey: ['aiops-digest'], queryFn: () => api.get<{ markdown: string; attention: string[]; incidents: { new: number; open: number; resolved: number } }>('/aiops/reports/oncall-digest', { hours: 24 }) });
+  return (
+    <QueryView q={q}>
+      {(d) => (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-3 gap-2">
+            <Stat label="Sự cố mới 24h" value={String(d.incidents.new)} />
+            <Stat label="Đang mở" value={String(d.incidents.open)} tone={d.incidents.open ? 'danger' : 'success'} />
+            <Stat label="Đã đóng" value={String(d.incidents.resolved)} />
+          </div>
+          {d.attention.length > 0 && (
+            <Card className="p-3">
+              <SectionTitle>Cần chú ý</SectionTitle>
+              <ul className="list-disc space-y-1 pl-5 text-sm">{d.attention.map((a) => <li key={a} className="break-words">{a}</li>)}</ul>
+            </Card>
+          )}
+          <Card className="p-3"><pre className="whitespace-pre-wrap break-words text-sm">{d.markdown}</pre></Card>
+        </div>
+      )}
+    </QueryView>
+  );
+}
+
+function Incidents() {
   const [status, setStatus] = useState('open');
   const [sel, setSel] = useState<Incident | null>(null);
   const q = useQuery({
@@ -38,7 +114,6 @@ export default function AdminAiopsPage() {
   });
   return (
     <div>
-      <PageTitle>Sự cố & tác tử AIOps</PageTitle>
       <Tabs className="mb-3" value={status} onChange={setStatus}
         items={[{ value: 'open', label: 'Đang mở' }, { value: 'acknowledged', label: 'Đã nhận' }, { value: 'resolved', label: 'Đã đóng' }, { value: '', label: 'Tất cả' }]} />
       <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState icon={<CheckCircle2 className="size-6" />} title="Không có sự cố" description="Detector chưa phát hiện bất thường nào." />}>
