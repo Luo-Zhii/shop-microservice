@@ -4,6 +4,7 @@
 So images.yaml môi trường đích (trước) với nguồn (sau): service nào đổi tag `sha-<commit>` thì lấy
 `git diff --numstat <cũ>..<mới> -- services/<svc> packages/` trong repo ứng dụng → danh sách file + số dòng.
 Tag cũ không tồn tại trong lịch sử (vd sha-0000000 lúc khởi tạo) thì bỏ service đó. Không có gì đổi → không gửi.
+Lead time (DORA) = trung vị (lúc deploy − lúc commit) của các commit mới trong khoảng đó.
 
   python scripts/ci/record_deploy.py --before old.yaml --after new.yaml --repo . --url "$AIOPS_URL" --ref "promote dev→staging"
 """
@@ -12,8 +13,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import subprocess
 import sys
+import time
 import urllib.request
 
 import yaml
@@ -29,7 +32,13 @@ def commit(tag: str) -> str | None:
 
 
 def changed_files(repo: str, before: dict[str, str], after: dict[str, str]) -> tuple[list[str], list[dict]]:
-    svcs, files = [], {}
+    svcs, files, _ = changes(repo, before, after)
+    return svcs, files
+
+
+def changes(repo: str, before: dict[str, str], after: dict[str, str]) -> tuple[list[str], list[dict], list[int]]:
+    """→ (service đổi tag, file đổi + số dòng, thời điểm commit của các commit mới)."""
+    svcs, files, commits = [], {}, {}
     for svc, new in sorted(after.items()):
         old = before.get(svc, "")
         a, b = commit(old), commit(new)
@@ -44,7 +53,16 @@ def changed_files(repo: str, before: dict[str, str], after: dict[str, str]) -> t
         for line in r.stdout.splitlines():
             add, rem, p = line.split("\t", 2)
             files[p] = (int(add) if add.isdigit() else 0) + (int(rem) if rem.isdigit() else 0)
-    return svcs, [{"path": p, "lines": n} for p, n in sorted(files.items())]
+        log = subprocess.run(["git", "-C", repo, "log", "--format=%H %ct", f"{a}..{b}", "--", f"services/{svc}", "packages/"],
+                             capture_output=True, text=True).stdout
+        for ln in log.splitlines():
+            h, ct = ln.split()
+            commits[h] = int(ct)
+    return svcs, [{"path": p, "lines": n} for p, n in sorted(files.items())], list(commits.values())
+
+
+def lead_time(commit_ts: list[int], deployed_at: float) -> float | None:
+    return round(statistics.median(max(0.0, deployed_at - t) for t in commit_ts), 1) if commit_ts else None
 
 
 def main(argv=None) -> int:
@@ -55,13 +73,15 @@ def main(argv=None) -> int:
     ap.add_argument("--url", required=True, help="gốc AIOps, vd https://aiops.shopnow.internal")
     ap.add_argument("--ref", default="")
     ap.add_argument("--token", default="")
+    ap.add_argument("--environment", default="")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
-    svcs, files = changed_files(a.repo, tags(a.before), tags(a.after))
+    svcs, files, commit_ts = changes(a.repo, tags(a.before), tags(a.after))
     if not files:
         print("không có service nào đổi tag — bỏ qua")
         return 0
-    body = {"files": files, "ref": a.ref or ",".join(svcs)}
+    body = {"files": files, "ref": a.ref or ",".join(svcs), "lead_time_s": lead_time(commit_ts, time.time()),
+            "environment": a.environment or None}
     if a.dry_run:
         print(json.dumps(body, ensure_ascii=False))
         return 0

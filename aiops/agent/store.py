@@ -35,6 +35,8 @@ DDL = [
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
+# migration cộng dồn (chỉ thêm cột, không sửa/xoá) cho DB đã tạo từ phiên bản trước — chạy lặp lại vô hại
+ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT")]
 JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
@@ -56,6 +58,11 @@ class IncidentStore:
             self.conn.row_factory = sqlite3.Row
         for stmt in DDL:
             self._exec(stmt)
+        for table, col, typ in ADD_COLUMNS:
+            if self.pg:
+                self._exec(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {typ}")
+            elif col not in {r["name"] for r in self._exec(f"PRAGMA table_info({table})")}:
+                self._exec(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     # ---- tầng SQL ----
     def _exec(self, sql: str, params: tuple = ()) -> list[dict]:
@@ -190,9 +197,10 @@ class IncidentStore:
         return [self._dec(r) for r in rows]
 
     # ---- học trọng số rủi ro thay đổi ----
-    def add_deploy(self, ref: str, services: list[str], features: dict, probability: float, deployed_at: float) -> dict:
+    def add_deploy(self, ref: str, services: list[str], features: dict, probability: float, deployed_at: float,
+                   lead_time_s: float | None = None, environment: str | None = None) -> dict:
         row = {"id": uuid7(), "ref": ref, "services": services, "features": features, "probability": probability,
-               "deployed_at": deployed_at, "label": None, "labeled_at": None}
+               "deployed_at": deployed_at, "label": None, "labeled_at": None, "lead_time_s": lead_time_s, "environment": environment}
         self._insert("deploy_records", row)
         return row
 

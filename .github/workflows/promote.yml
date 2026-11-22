@@ -42,5 +42,5 @@ jobs:
           pip install -q pyyaml
           python app/scripts/ci/record_deploy.py --repo app \
             --before "$RUNNER_TEMP/images-before.yaml" --after "environments/${{ inputs.to }}/images.yaml" \
-            --url "${{ vars.AIOPS_URL }}" --token "${{ secrets.AIOPS_TOKEN }}" \
+            --url "${{ vars.AIOPS_URL }}" --token "${{ secrets.AIOPS_TOKEN }}" --environment "${{ inputs.to }}" \
             --ref "promote ${{ inputs.from }}→${{ inputs.to }} #${{ github.run_number }}"

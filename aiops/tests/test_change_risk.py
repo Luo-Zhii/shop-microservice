@@ -230,6 +230,11 @@ def test_risk_model_learns_from_deploy_history(tmp_path):
         # deploy có migration được chấm rủi ro cao hơn → nhóm mức cao hơn phải có tỉ lệ hỏng ≥ nhóm thấp
         rates = [lv[k]["failure_rate"] for k in ("low", "medium", "high") if lv[k]["deploys"]]
         assert rates == sorted(rates)
+        c.post("/change-risk/deploys", json={"files": [{"path": "services/order/src/x.ts", "lines": 5}], "at": base + 40 * 6 * 3600,
+                                             "lead_time_s": 5400, "environment": "staging"})
+        dora = c.get("/reports/dora?days=30&environment=staging").json()
+        assert dora["counts"]["deploys"] == 1 and dora["metrics"]["lead_time"]["value"] == 5400
+        assert dora["metrics"]["lead_time"]["band"] == "elite" and dora["overall"] is None
 
 
 def test_fit_labels_use_rca_root_cause(tmp_path):

@@ -18,6 +18,7 @@ GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tr�
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
+GET  /reports/dora?days&environment     4 chỉ số DORA (tần suất, lead time, CFR, thời gian khôi phục) + mức elite…low
 GET  /reports/alert-quality?days       chất lượng cảnh báo: flapping, tỉ lệ nhận, tỉ lệ khắc phục → khuyến nghị
 GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
@@ -343,7 +344,10 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         since = at - 30 * 86400
         ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
         x = ch.features()
-        rec = responder.store.add_deploy(str(body.get("ref") or ""), ch.services(), x, score(x)["probability"], at)
+        lt = body.get("lead_time_s")
+        rec = responder.store.add_deploy(str(body.get("ref") or ""), ch.services(), x, score(x)["probability"], at,
+                                         lead_time_s=float(lt) if isinstance(lt, (int, float)) and lt >= 0 else None,
+                                         environment=str(body["environment"])[:40] if body.get("environment") else None)
         return {"id": rec["id"], "services": rec["services"], "probability": rec["probability"]}
 
     @app.get("/change-risk/summary")
@@ -540,6 +544,12 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         from .agent.alert_quality import analyze
 
         return analyze(responder.store, responder.clock(), days)
+
+    @app.get("/reports/dora")
+    def dora_report(days: int = Query(30, ge=1, le=180), environment: str | None = Query(None, max_length=40)):
+        from .dora import report
+
+        return report(responder.store, responder.clock(), days, environment)
 
     @app.get("/reports/oncall-digest")
     def oncall_digest(hours: int = Query(24, ge=1, le=168)):

@@ -35,3 +35,9 @@ def test_changed_files_from_image_tags(tmp_path):
     svcs, files = m.changed_files(str(tmp_path), before, after)
     assert svcs == ["order"]   # cart không đổi tag, search từ tag khởi tạo → bỏ
     assert files == [{"path": "services/order/migrations/002.sql", "lines": 1}, {"path": "services/order/src/a.ts", "lines": 2}]
+
+
+def test_lead_time_median():
+    m = _mod()
+    assert m.lead_time([], 100.0) is None
+    assert m.lead_time([0, 50, 90], 100.0) == 50.0 and m.lead_time([200], 100.0) == 0.0

@@ -147,6 +147,58 @@ const LEVEL: Record<Level, { label: string; tone: Tone }> = {
   low: { label: 'Thấp', tone: 'success' }, medium: { label: 'Trung bình', tone: 'warning' }, high: { label: 'Cao', tone: 'danger' },
 };
 
+type DoraKey = 'deployment_frequency' | 'lead_time' | 'change_failure_rate' | 'time_to_restore';
+type Band = 'elite' | 'high' | 'medium' | 'low';
+interface DoraMetric { value: number | null; band: Band | null; previous: number | null; previous_band: Band | null }
+interface Dora { days: number; overall: Band | null; metrics: Record<DoraKey, DoraMetric>; counts: { deploys: number; labeled: number; with_lead_time: number; restored: number } }
+const BAND: Record<Band, { label: string; tone: Tone }> = {
+  elite: { label: 'Elite', tone: 'success' }, high: { label: 'High', tone: 'info' }, medium: { label: 'Medium', tone: 'warning' }, low: { label: 'Low', tone: 'danger' },
+};
+const dur = (s: number) => (s < 3600 ? Math.round(s / 60) + ' phút' : s < 86400 ? (s / 3600).toFixed(1) + ' giờ' : (s / 86400).toFixed(1) + ' ngày');
+const DORA: { key: DoraKey; label: string; fmt: (v: number) => string; lowerIsBetter: boolean }[] = [
+  { key: 'deployment_frequency', label: 'Tần suất deploy', fmt: (v) => (v >= 1 ? v.toFixed(1) + '/ngày' : (v * 7).toFixed(1) + '/tuần'), lowerIsBetter: false },
+  { key: 'lead_time', label: 'Lead time', fmt: dur, lowerIsBetter: true },
+  { key: 'change_failure_rate', label: 'Change failure rate', fmt: (v) => Math.round(v * 100) + '%', lowerIsBetter: true },
+  { key: 'time_to_restore', label: 'Thời gian khôi phục', fmt: dur, lowerIsBetter: true },
+];
+
+/** Bốn chỉ số DORA 30 ngày tính từ dữ liệu nền tảng (deploy do promote.yml ghi + sự cố AIOps), so với 30 ngày trước. */
+function DoraPanel() {
+  const [env, setEnv] = useState('');
+  const q = useQuery({ queryKey: ['aiops-dora', env], retry: false, placeholderData: keepPreviousData,
+    queryFn: () => api.get<Dora>('/aiops/reports/dora', { days: 30, environment: env || undefined }) });
+  return (
+    <section>
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <SectionTitle className="mb-0 min-w-0 flex-1">DORA 30 ngày{q.data?.overall && <Badge className="ml-2" tone={BAND[q.data.overall].tone}>{BAND[q.data.overall].label}</Badge>}</SectionTitle>
+        <Tabs value={env} onChange={setEnv} items={[{ value: '', label: 'Tất cả' }, { value: 'staging', label: 'Staging' }, { value: 'prod-onprem', label: 'On-prem' }, { value: 'prod-aws', label: 'AWS' }]} />
+      </div>
+      <QueryView q={q}>
+        {(d) => (
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {DORA.map(({ key, label, fmt, lowerIsBetter }) => {
+              const m = d.metrics[key];
+              const better = m.value != null && m.previous != null && m.value !== m.previous ? (m.value < m.previous) === lowerIsBetter : null;
+              return (
+                <li key={key} className="rounded-xl border border-border p-3">
+                  <div className="flex items-start gap-2">
+                    <span className="min-w-0 flex-1 text-sm text-muted">{label}</span>
+                    {m.band && <Badge tone={BAND[m.band].tone}>{BAND[m.band].label}</Badge>}
+                  </div>
+                  <p className="mt-1 text-lg font-semibold">{m.value == null ? '—' : fmt(m.value)}</p>
+                  <p className={'text-xs ' + (better == null ? 'text-muted' : better ? 'text-success' : 'text-danger')}>
+                    {m.previous == null ? 'Kỳ trước: chưa có dữ liệu' : `Kỳ trước: ${fmt(m.previous)}`}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </QueryView>
+    </section>
+  );
+}
+
 /** Vòng học chấm rủi ro thay đổi: deploy thật (promote.yml ghi) → nhãn theo RCA sau 2h → học lại trọng số có cổng log-loss. */
 function Changes() {
   const qc = useQueryClient();
@@ -165,9 +217,10 @@ function Changes() {
       empty={<EmptyState title="Chưa có deploy nào được ghi" description="Đặt biến AIOPS_URL cho workflow promote để mỗi lần promote ghi diff thật vào vòng học." />}>
       {(d) => (
         <div className="flex flex-col gap-4">
+          <DoraPanel />
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="Change failure rate" value={pct(d.change_failure_rate)} tone={(d.change_failure_rate ?? 0) > 0.15 ? 'danger' : 'success'} />
             <Stat label="Deploy đã gắn nhãn" value={`${d.labeled}/${d.deploys}`} />
+            <Stat label="Chờ gắn nhãn (2 giờ)" value={String(d.pending)} />
             <Stat label="Brier score" value={d.brier == null ? '—' : d.brier.toFixed(3)} />
             <Stat label="Trọng số" value={d.model.source === 'fitted' ? 'Đã học' : 'Prior'} />
           </div>
@@ -177,7 +230,6 @@ function Changes() {
                 {d.model.source === 'fitted'
                   ? <>Mô hình học từ <b>{d.model.records}</b> deploy ({d.model.positives} lần gây sự cố) lúc {formatDate(d.model.fitted_at)} · log-loss {d.model.logloss_fit} so với prior {d.model.logloss_prior}.</>
                   : <>Đang dùng trọng số prior do người đặt. Cần ≥ 30 deploy đã gắn nhãn, có cả deploy hỏng lẫn không, mới học lại.</>}
-                {d.pending > 0 && <> {d.pending} deploy chờ đủ 2 giờ để gắn nhãn.</>}
               </p>
               <Button variant="outline" className="sm:shrink-0" onClick={() => fit.mutate()} disabled={fit.isPending}>{fit.isPending ? 'Đang học…' : 'Gắn nhãn & học lại'}</Button>
             </div>
