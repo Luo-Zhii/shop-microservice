@@ -77,24 +77,66 @@ const SLO_STATE: Record<SloItem['state'], { label: string; tone: Tone }> = {
   at_risk: { label: 'Có rủi ro', tone: 'warning' }, healthy: { label: 'Khoẻ', tone: 'success' },
 };
 
+interface SynStep { step: string; service: string | null; ok: boolean | null; p95_s: number | null }
+interface SynLoc { location: string; ok: boolean | null; stale: boolean; stale_s: number | null; availability_24h: number | null; failed_step: string | null; steps: SynStep[] }
+const STEP_LABEL: Record<string, string> = { home: 'Trang chủ', search: 'Tìm kiếm', product: 'Sản phẩm', cart_add: 'Thêm giỏ', cart_view: 'Xem giỏ', cart_remove: 'Xoá giỏ' };
+
+/** Robot đi hành trình mua hàng mỗi phút ở từng cụm (dừng trước checkout để không sinh đơn/bút toán thật). */
+function SyntheticJourney() {
+  const q = useQuery({ queryKey: ['aiops-synthetic'], retry: false, refetchInterval: 60_000,
+    queryFn: () => api.get<{ locations: SynLoc[]; diverged: boolean; hint: string | null }>('/aiops/synthetic/status') });
+  if (!q.data?.locations.length) return null;
+  const d = q.data;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Hành trình mua hàng tổng hợp</SectionTitle>
+      {d.diverged && <Card className="mb-2 border-warning p-3 text-sm break-words">{d.hint}</Card>}
+      <ul className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {d.locations.map((l) => (
+          <li key={l.location} className="rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 flex-1 truncate font-medium">{l.location}</span>
+              {l.stale ? <Badge tone="warning">Robot im {Math.round((l.stale_s ?? 0) / 60)} phút</Badge>
+                : <Badge tone={l.ok ? 'success' : 'danger'}>{l.ok ? 'Trót lọt' : `Hỏng ở ${STEP_LABEL[l.failed_step ?? ''] ?? l.failed_step}`}</Badge>}
+            </div>
+            <ol className="mt-2 flex flex-wrap gap-1.5">
+              {l.steps.map((st) => (
+                <li key={st.step} title={st.service ?? undefined}>
+                  <Badge tone={st.ok == null ? 'neutral' : st.ok ? 'success' : 'danger'}>
+                    {STEP_LABEL[st.step] ?? st.step}{st.p95_s != null && ` · ${Math.round(st.p95_s * 1000)}ms`}
+                  </Badge>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-2 text-xs text-muted">Khả dụng 24h: {l.availability_24h == null ? '—' : (l.availability_24h * 100).toFixed(2) + '%'} · p95 tính trên 30 phút</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Trạng thái SLO (Sloth): hết budget → chính sách đóng băng thay đổi không khẩn cấp (chấm rủi ro thay đổi ép mức high). */
 function Slo() {
   const q = useQuery({ queryKey: ['aiops-slo'], retry: false, refetchInterval: 60_000, queryFn: () => api.get<{ items: SloItem[] }>('/aiops/slo/status') });
   const pct = (v?: number | null) => (v == null ? '—' : (v * 100).toFixed(v >= 0.99 ? 1 : 0) + '%');
   return (
-    <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có SLO" description="Sloth chưa sinh recording rule hoặc Prometheus chưa sẵn sàng." />}>
-      {(d) => (
-        <DataTable rows={d.items} rowKey={(i) => i.slo}
-          columns={[
-            { key: 'slo', header: 'SLO', primary: true, cell: (i) => <span className="font-mono text-sm break-all">{i.slo}</span> },
-            { key: 'st', header: 'Trạng thái', badge: true, cell: (i) => <Badge tone={SLO_STATE[i.state].tone}>{SLO_STATE[i.state].label}</Badge> },
-            { key: 'obj', header: 'Mục tiêu', align: 'right', cell: (i) => pct(i.objective) },
-            { key: 'burn', header: 'Tốc độ đốt', align: 'right', cell: (i) => (i.burn_rate == null ? '—' : <span className={i.burn_rate > 1 ? 'text-danger' : ''}>{i.burn_rate.toFixed(2)}×</span>) },
-            { key: 'rem', header: 'Budget còn lại', align: 'right', cell: (i) => <b className={(i.budget_remaining ?? 1) <= 0 ? 'text-danger' : ''}>{pct(i.budget_remaining)}</b> },
-            { key: 'svc', header: 'Service ràng buộc', hideOnMobile: true, cell: (i) => <span className="text-xs">{i.services.join(', ') || '—'}</span> },
-          ]} />
-      )}
-    </QueryView>
+    <>
+      <SyntheticJourney />
+      <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có SLO" description="Sloth chưa sinh recording rule hoặc Prometheus chưa sẵn sàng." />}>
+        {(d) => (
+          <DataTable rows={d.items} rowKey={(i) => i.slo}
+            columns={[
+              { key: 'slo', header: 'SLO', primary: true, cell: (i) => <span className="font-mono text-sm break-all">{i.slo}</span> },
+              { key: 'st', header: 'Trạng thái', badge: true, cell: (i) => <Badge tone={SLO_STATE[i.state].tone}>{SLO_STATE[i.state].label}</Badge> },
+              { key: 'obj', header: 'Mục tiêu', align: 'right', cell: (i) => pct(i.objective) },
+              { key: 'burn', header: 'Tốc độ đốt', align: 'right', cell: (i) => (i.burn_rate == null ? '—' : <span className={i.burn_rate > 1 ? 'text-danger' : ''}>{i.burn_rate.toFixed(2)}×</span>) },
+              { key: 'rem', header: 'Budget còn lại', align: 'right', cell: (i) => <b className={(i.budget_remaining ?? 1) <= 0 ? 'text-danger' : ''}>{pct(i.budget_remaining)}</b> },
+              { key: 'svc', header: 'Service ràng buộc', hideOnMobile: true, cell: (i) => <span className="text-xs">{i.services.join(', ') || '—'}</span> },
+            ]} />
+        )}
+      </QueryView>
+    </>
   );
 }
 

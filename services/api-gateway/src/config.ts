@@ -9,6 +9,8 @@ export const cfg = loadConfig('api-gateway', 8080, {
   RATE_LIMIT_AUTH: z.coerce.number().int().min(1).default(30),
   BFF_TIMEOUT_MS: z.coerce.number().int().min(100).default(1500),
   STATUS_TIMEOUT_MS: z.coerce.number().int().min(100).default(1500),
+  /** Token của robot giám sát tổng hợp — khớp thì gateway gắn x-synthetic=1 cho upstream (rỗng = tắt) */
+  SYNTHETIC_TOKEN: z.string().default(''),
   IDENTITY_URL: url(8101),
   USER_PROFILE_URL: url(8102),
   SELLER_URL: url(8103),

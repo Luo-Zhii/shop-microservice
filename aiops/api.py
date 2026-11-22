@@ -16,6 +16,7 @@ POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + can
 POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật (promote.yml) → gắn nhãn sau 2h theo RCA → học lại trọng số
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
+GET  /synthetic/status                 hành trình mua hàng tổng hợp theo vị trí (on-prem/AWS), bước hỏng, p95
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
 GET  /reports/dora?days&environment     4 chỉ số DORA (tần suất, lead time, CFR, thời gian khôi phục) + mức elite…low
@@ -621,6 +622,55 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                      else "at_risk" if (rem is not None and rem < 0.25) or (burn is not None and burn > 1) else "healthy")
             out.append({**r, "state": state, "services": slo_svcs.get(slo, [])})
         return {"items": out}
+
+    @app.get("/synthetic/status")
+    def synthetic_status():
+        """Hành trình mua hàng tổng hợp theo từng vị trí (on-prem/AWS): bước nào hỏng, p95 từng bước, độ khả dụng 24h,
+        robot có còn chạy không. Hỏng ở một vị trí mà vị trí kia vẫn ổn → nghi mạng/cụm (hybrid), không phải ứng dụng."""
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        order = ["home", "search", "product", "cart_add", "cart_view", "cart_remove"]
+        q = {
+            "step": "synthetic_step_success",
+            "p95": "histogram_quantile(0.95, sum by (le, step, location) (rate(synthetic_step_duration_seconds_bucket[30m])))",
+            "journey": "synthetic_journey_success",
+            "stale": "time() - synthetic_last_run_timestamp_seconds",
+            "avail": ('sum by (location) (increase(synthetic_journey_runs_total{result="success"}[24h]))'
+                      " / sum by (location) (increase(synthetic_journey_runs_total[24h]))"),
+        }
+        res: dict[str, list] = {}
+        for k, expr in q.items():
+            try:
+                res[k] = responder.prom.query(expr)
+            except Exception as e:  # noqa: BLE001 - thiếu một truy vấn vẫn trả phần còn lại
+                log.warning("synthetic %s lỗi: %s", k, e)
+                res[k] = []
+        val = lambda r: (lambda v: None if v != v else v)(float(r["value"][1]))  # noqa: E731 - NaN → None
+        locs: dict[str, dict] = {}
+        loc = lambda name: locs.setdefault(name, {"location": name, "ok": None, "stale_s": None,  # noqa: E731
+                                                  "availability_24h": None, "steps": {}})
+        for r in res["step"]:
+            m = r["metric"]
+            loc(m.get("location", "?"))["steps"].setdefault(m.get("step"), {})
+            loc(m.get("location", "?"))["steps"][m.get("step")].update(service=m.get("service"), ok=val(r) == 1)
+        for r in res["p95"]:
+            m = r["metric"]
+            v = val(r)
+            loc(m.get("location", "?"))["steps"].setdefault(m.get("step"), {})["p95_s"] = None if v is None else round(v, 3)
+        for k, field in (("journey", "ok"), ("stale", "stale_s"), ("avail", "availability_24h")):
+            for r in res[k]:
+                v = val(r)
+                loc(r["metric"].get("location", "?"))[field] = (v == 1) if field == "ok" else (None if v is None else round(v, 4))
+        out = []
+        for name, d in sorted(locs.items()):
+            steps = [{"step": st, "service": d["steps"].get(st, {}).get("service"), "ok": d["steps"].get(st, {}).get("ok"),
+                      "p95_s": d["steps"].get(st, {}).get("p95_s")} for st in order]
+            failed = next((x["step"] for x in steps if x["ok"] is False), None)
+            out.append({**d, "steps": steps, "failed_step": failed, "stale": (d["stale_s"] or 0) > 300})
+        oks = [x["ok"] for x in out if x["ok"] is not None]
+        diverged = len(oks) >= 2 and any(oks) and not all(oks)
+        return {"locations": out, "diverged": diverged,
+                "hint": "Một cụm hỏng, cụm kia vẫn ổn → kiểm tra mạng/ingress/cụm trước khi nghi ứng dụng." if diverged else None}
 
     # ---------------------------------------------------------------- bàn giao ca trực
     @app.get("/reports/alert-quality")

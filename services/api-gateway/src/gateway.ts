@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import proxy from '@fastify/http-proxy';
 import rateLimit from '@fastify/rate-limit';
 import type Redis from 'ioredis';
@@ -14,6 +15,16 @@ export interface GatewayOptions {
   rateLimit: { enabled: boolean; globalMax: number; authMax: number; nameSpace?: string };
   bffTimeoutMs: number;
   statusTimeoutMs: number;
+  /** Token robot giám sát tổng hợp; client thường không tự gắn được x-synthetic (header bị xoá nếu token sai/thiếu). */
+  syntheticToken?: string;
+}
+
+/** So token hằng thời gian (không lộ độ dài khớp qua thời gian phản hồi). */
+export function tokenMatches(given: unknown, expected: string | undefined): boolean {
+  if (!expected || typeof given !== 'string') return false;
+  const a = createHash('sha256').update(given).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 const AUTH_PATH = /^\/api\/identity\/auth\//;
@@ -118,6 +129,11 @@ export async function buildGateway(app: FastifyInstance, opts: GatewayOptions) {
           delete h['x-user-id'];
           delete h['x-user-roles'];
           delete h['x-actor'];
+          // lưu lượng robot tổng hợp: chỉ tin khi token đúng → upstream loại khỏi thống kê nghiệp vụ (vd truy vấn phổ biến)
+          const synthetic = tokenMatches(headers['x-synthetic-token'], opts.syntheticToken);
+          delete h['x-synthetic'];
+          delete h['x-synthetic-token'];
+          if (synthetic) h['x-synthetic'] = '1';
           h['x-request-id'] = req.id;
           h['x-forwarded-for'] = [headers['x-forwarded-for'], req.ip].filter(Boolean).join(', ');
           if (req.user) {

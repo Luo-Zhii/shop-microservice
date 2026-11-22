@@ -41,7 +41,9 @@ export function registerRoutes(app: FastifyInstance, deps: { engine: SearchEngin
     const q = parseSearchQuery(req.query as Record<string, unknown>);
     const r = await engine.search(q);
     // chỉ ghi nhận truy vấn có kết quả để gợi ý không bị rác
-    if (q.q && r.total > 0 && q.page === 1) engine.recordQuery(q.q).catch((err) => log.warn({ err }, 'không ghi được truy vấn phổ biến'));
+    // robot giám sát tổng hợp (gateway gắn x-synthetic sau khi kiểm token) không được làm lệch "truy vấn phổ biến"
+    const synthetic = req.headers['x-synthetic'] === '1';
+    if (q.q && r.total > 0 && q.page === 1 && !synthetic) engine.recordQuery(q.q).catch((err) => log.warn({ err }, 'không ghi được truy vấn phổ biến'));
     return { items: r.items, total: r.total, page: q.page, pageSize: q.pageSize, facets: r.facets };
   });
 

@@ -1,0 +1,20 @@
+{
+  "name": "@shopnow/synthetic",
+  "version": "2.0.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "node ../../scripts/build-service.mjs",
+    "start": "node --enable-source-maps dist/main.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "tsx --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@shopnow/platform": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {}
+}

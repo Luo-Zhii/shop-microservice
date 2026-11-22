@@ -53,6 +53,7 @@ function gatewayOpts(over: Partial<GatewayOptions> = {}): GatewayOptions {
     rateLimit: { enabled: true, globalMax: 600, authMax: 30 },
     bffTimeoutMs: 500,
     statusTimeoutMs: 500,
+    syntheticToken: 'synth-tok',
     ...over,
   };
 }
@@ -116,6 +117,15 @@ test('proxy bỏ prefix /api/<svc>, giữ query, truyền x-request-id, không t
   assert.equal(up.method, 'POST');
   assert.deepEqual(up.body, { a: 1 });
   assert.equal((await gw.inject({ method: 'GET', url: '/api/khong-co/abc' })).statusCode, 404);
+});
+
+test('x-synthetic: chỉ gắn khi token robot đúng; client tự gửi x-synthetic hoặc token sai bị gỡ', async () => {
+  const ok = (await gw.inject({ method: 'GET', url: '/api/search/search?q=ao', headers: { 'x-synthetic-token': 'synth-tok' } })).json();
+  assert.equal(ok.headers['x-synthetic'], '1');
+  assert.equal(ok.headers['x-synthetic-token'], undefined, 'token không được lọt xuống upstream');
+  const forged = (await gw.inject({ method: 'GET', url: '/api/search/search?q=ao', headers: { 'x-synthetic': '1', 'x-synthetic-token': 'sai' } })).json();
+  assert.equal(forged.headers['x-synthetic'], undefined);
+  assert.equal(forged.headers['x-synthetic-token'], undefined);
 });
 
 test('chặn mọi đường /internal (kể cả mã hoá / dot-segment)', async () => {

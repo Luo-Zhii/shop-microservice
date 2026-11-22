@@ -205,6 +205,11 @@ test('suggest: tiền tố tiêu đề + truy vấn phổ biến', async () => {
   } finally {
     delete process.env.FLAGS_FILE;
   }
+  // robot giám sát tổng hợp (x-synthetic do gateway gắn) tìm "quần" nhiều lần → không thành truy vấn phổ biến
+  for (let i = 0; i < 5; i++) await app.inject({ method: 'GET', url: `/search?q=${encodeURIComponent('quần')}`, headers: { 'x-synthetic': '1' } });
+  await new Promise((r) => setTimeout(r, 100));
+  const pop = (await app.inject({ method: 'GET', url: '/suggest' })).json();
+  assert.ok(!pop.suggestions.includes('quần'), JSON.stringify(pop.suggestions));
   const metrics = (await app.inject({ method: 'GET', url: '/metrics' })).body;
   assert.match(metrics, /search_requests_total\{.*engine="postgres"/);
 });

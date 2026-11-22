@@ -332,6 +332,15 @@ importers:
         specifier: ^5.2.1
         version: 5.12.8
 
+  services/synthetic:
+    dependencies:
+      '@shopnow/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      fastify:
+        specifier: ^5.2.1
+        version: 5.12.8
+
   services/user-profile:
     dependencies:
       '@shopnow/contracts':

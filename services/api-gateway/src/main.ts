@@ -21,6 +21,7 @@ async function main() {
     rateLimit: { enabled: cfg.RATE_LIMIT_ENABLED, globalMax: cfg.RATE_LIMIT_GLOBAL, authMax: cfg.RATE_LIMIT_AUTH },
     bffTimeoutMs: cfg.BFF_TIMEOUT_MS,
     statusTimeoutMs: cfg.STATUS_TIMEOUT_MS,
+    syntheticToken: cfg.SYNTHETIC_TOKEN || undefined,
   });
 
   // Không gắn Redis vào readiness: Redis chết gateway vẫn phục vụ (rate limit tạm bỏ qua)
