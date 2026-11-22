@@ -346,6 +346,39 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         rec = responder.store.add_deploy(str(body.get("ref") or ""), ch.services(), x, score(x)["probability"], at)
         return {"id": rec["id"], "services": rec["services"], "probability": rec["probability"]}
 
+    @app.get("/change-risk/summary")
+    def change_risk_summary(limit: int = Query(50, ge=1, le=500)):
+        """Bảng điều khiển vòng học: change failure rate (DORA), hiệu chỉnh theo mức rủi ro (mức high có thật sự hỏng
+        nhiều hơn low?), Brier score của xác suất đã dự báo, mô hình đang dùng, deploy gần nhất."""
+        from datetime import datetime, timezone
+
+        from .change_risk import PRIOR
+
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+        lvl = lambda p: "low" if p < 0.2 else "medium" if p < 0.5 else "high"  # noqa: E731 - cùng ngưỡng với score()
+        allr = responder.store.deploys()
+        lab = [d for d in allr if d["label"] is not None]
+        by = {k: {"deploys": 0, "failed": 0, "predicted": 0.0} for k in ("low", "medium", "high")}
+        for d in lab:
+            b = by[lvl(d["probability"])]
+            b["deploys"] += 1
+            b["failed"] += int(d["label"])
+            b["predicted"] += d["probability"]
+        calib = [{"level": k, "deploys": v["deploys"], "failed": v["failed"],
+                  "failure_rate": round(v["failed"] / v["deploys"], 3) if v["deploys"] else None,
+                  "mean_predicted": round(v["predicted"] / v["deploys"], 3) if v["deploys"] else None} for k, v in by.items()]
+        m = responder.store.latest_model()
+        model = ({"source": "fitted", "records": m["n"], "positives": m["positives"], "logloss_prior": round(m["logloss_prior"], 4),
+                  "logloss_fit": round(m["logloss_fit"], 4), "fitted_at": iso(m["created_at"]), "weights": m["weights"]}
+                 if m else {"source": "prior", "weights": PRIOR})
+        items = [{"id": d["id"], "ref": d["ref"], "services": d["services"], "probability": round(d["probability"], 3),
+                  "level": lvl(d["probability"]), "label": d["label"], "deployed_at": iso(d["deployed_at"])}
+                 for d in sorted(allr, key=lambda d: -d["deployed_at"])[:limit]]
+        return {"deploys": len(allr), "labeled": len(lab), "pending": len(allr) - len(lab),
+                "change_failure_rate": round(sum(d["label"] for d in lab) / len(lab), 3) if lab else None,
+                "brier": round(sum((d["probability"] - d["label"]) ** 2 for d in lab) / len(lab), 4) if lab else None,
+                "calibration": calib, "model": model, "items": items}
+
     @app.post("/change-risk/fit")
     def fit_risk(window_hours: float = Query(2.0, gt=0, le=48), min_records: int = Query(30, ge=5, le=10000)):
         """Gắn nhãn deploy đã quá `window_hours` (có sự cố ở service liên quan trong cửa sổ → 1) rồi học lại trọng số.

@@ -205,6 +205,8 @@ def test_risk_model_learns_from_deploy_history(tmp_path):
         base = 1_790_000_000.0
         r = c.post("/change-risk/fit?min_records=30").json()
         assert r["fitted"] is False and r["records"] == 0
+        empty = c.get("/change-risk/summary").json()
+        assert empty["deploys"] == 0 and empty["change_failure_rate"] is None and empty["model"]["source"] == "prior"
         for k in range(40):
             at = base + k * 6 * 3600
             mig = k % 2 == 0
@@ -220,6 +222,14 @@ def test_risk_model_learns_from_deploy_history(tmp_path):
         assert r["weights"]["migration"] > PRIOR["migration"] and r["logloss_fit"] <= r["logloss_prior"]
         scored = c.post("/change-risk", json={"files": [{"path": "services/catalog/migrations/099.sql", "lines": 80}]}).json()
         assert scored["weights_source"] == "fitted"
+        sm = c.get("/change-risk/summary?limit=5").json()
+        assert sm["deploys"] == 40 and sm["labeled"] == 40 and sm["pending"] == 0 and sm["change_failure_rate"] == 0.25
+        assert sm["model"]["source"] == "fitted" and len(sm["items"]) == 5 and sm["items"][0]["ref"] == "d39"
+        lv = {b["level"]: b for b in sm["calibration"]}
+        assert sum(b["deploys"] for b in lv.values()) == 40 and 0 <= sm["brier"] <= 1
+        # deploy có migration được chấm rủi ro cao hơn → nhóm mức cao hơn phải có tỉ lệ hỏng ≥ nhóm thấp
+        rates = [lv[k]["failure_rate"] for k in ("low", "medium", "high") if lv[k]["deploys"]]
+        assert rates == sorted(rates)
 
 
 def test_fit_labels_use_rca_root_cause(tmp_path):

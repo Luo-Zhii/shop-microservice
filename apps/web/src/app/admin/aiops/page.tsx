@@ -28,15 +28,16 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
+      {view === 'changes' && <Changes />}
       {view === 'digest' && <Digest />}
     </div>
   );
@@ -131,6 +132,82 @@ function Capacity() {
         )}
       </QueryView>
     </>
+  );
+}
+
+type Level = 'low' | 'medium' | 'high';
+interface DeployRow { id: string; ref: string; services: string[]; probability: number; level: Level; label: number | null; deployed_at: string }
+interface ChangeSummary {
+  deploys: number; labeled: number; pending: number; change_failure_rate: number | null; brier: number | null;
+  calibration: { level: Level; deploys: number; failed: number; failure_rate: number | null; mean_predicted: number | null }[];
+  model: { source: 'fitted' | 'prior'; records?: number; positives?: number; logloss_prior?: number; logloss_fit?: number; fitted_at?: string };
+  items: DeployRow[];
+}
+const LEVEL: Record<Level, { label: string; tone: Tone }> = {
+  low: { label: 'Thấp', tone: 'success' }, medium: { label: 'Trung bình', tone: 'warning' }, high: { label: 'Cao', tone: 'danger' },
+};
+
+/** Vòng học chấm rủi ro thay đổi: deploy thật (promote.yml ghi) → nhãn theo RCA sau 2h → học lại trọng số có cổng log-loss. */
+function Changes() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['aiops-changes'], retry: false, queryFn: () => api.get<ChangeSummary>('/aiops/change-risk/summary', { limit: 50 }) });
+  const fit = useMutation({
+    mutationFn: () => api.post<{ fitted: boolean; labeled_now: number; reason?: string }>('/aiops/change-risk/fit'),
+    onSuccess: (r) => {
+      if (r.fitted) toast.success(`Đã học lại trọng số (gắn thêm ${r.labeled_now} nhãn)`);
+      else toast(r.reason ?? `Gắn thêm ${r.labeled_now} nhãn, chưa đủ để học lại`);
+      void qc.invalidateQueries({ queryKey: ['aiops-changes'] });
+    },
+  });
+  const pct = (v: number | null | undefined) => (v == null ? '—' : Math.round(v * 100) + '%');
+  return (
+    <QueryView q={q} isEmpty={(d) => !d.deploys}
+      empty={<EmptyState title="Chưa có deploy nào được ghi" description="Đặt biến AIOPS_URL cho workflow promote để mỗi lần promote ghi diff thật vào vòng học." />}>
+      {(d) => (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Change failure rate" value={pct(d.change_failure_rate)} tone={(d.change_failure_rate ?? 0) > 0.15 ? 'danger' : 'success'} />
+            <Stat label="Deploy đã gắn nhãn" value={`${d.labeled}/${d.deploys}`} />
+            <Stat label="Brier score" value={d.brier == null ? '—' : d.brier.toFixed(3)} />
+            <Stat label="Trọng số" value={d.model.source === 'fitted' ? 'Đã học' : 'Prior'} />
+          </div>
+          <Card className="flex flex-col gap-3 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <p className="min-w-0 flex-1 text-sm text-muted">
+                {d.model.source === 'fitted'
+                  ? <>Mô hình học từ <b>{d.model.records}</b> deploy ({d.model.positives} lần gây sự cố) lúc {formatDate(d.model.fitted_at)} · log-loss {d.model.logloss_fit} so với prior {d.model.logloss_prior}.</>
+                  : <>Đang dùng trọng số prior do người đặt. Cần ≥ 30 deploy đã gắn nhãn, có cả deploy hỏng lẫn không, mới học lại.</>}
+                {d.pending > 0 && <> {d.pending} deploy chờ đủ 2 giờ để gắn nhãn.</>}
+              </p>
+              <Button variant="outline" className="sm:shrink-0" onClick={() => fit.mutate()} disabled={fit.isPending}>{fit.isPending ? 'Đang học…' : 'Gắn nhãn & học lại'}</Button>
+            </div>
+            <div>
+              <SectionTitle>Hiệu chỉnh theo mức rủi ro</SectionTitle>
+              <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {d.calibration.map((c) => (
+                  <li key={c.level} className="rounded-xl border border-border p-3 text-sm">
+                    <Badge tone={LEVEL[c.level].tone}>{LEVEL[c.level].label}</Badge>
+                    <p className="mt-2">Dự báo <b>{pct(c.mean_predicted)}</b> · thực tế <b>{pct(c.failure_rate)}</b></p>
+                    <p className="text-xs text-muted">{c.failed}/{c.deploys} deploy gây sự cố</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
+          <section>
+            <SectionTitle>Deploy gần nhất</SectionTitle>
+            <DataTable rows={d.items} rowKey={(i) => i.id}
+              columns={[
+                { key: 'ref', header: 'Thay đổi', primary: true, cell: (i) => <span className="break-words text-sm">{i.ref || i.services.join(', ')}</span> },
+                { key: 'lv', header: 'Rủi ro', badge: true, cell: (i) => <Badge tone={LEVEL[i.level].tone}>{LEVEL[i.level].label} · {pct(i.probability)}</Badge> },
+                { key: 'svc', header: 'Service', cell: (i) => <span className="font-mono text-xs break-all">{i.services.join(', ') || '—'}</span> },
+                { key: 'lab', header: 'Kết quả (RCA)', cell: (i) => (i.label == null ? <span className="text-muted">Chờ 2 giờ</span> : i.label ? <Badge tone="danger">Gây sự cố</Badge> : <Badge tone="success">Ổn</Badge>) },
+                { key: 'at', header: 'Lúc', hideOnMobile: true, cell: (i) => <span title={formatDate(i.deployed_at)}>{timeAgo(i.deployed_at)}</span> },
+              ]} />
+          </section>
+        </div>
+      )}
+    </QueryView>
   );
 }
 
