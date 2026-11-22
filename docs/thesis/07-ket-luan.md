@@ -4,7 +4,7 @@
 
 | Mục tiêu (§1.2) | Kết quả | Minh chứng |
 |---|---|---|
-| M1 — Sàn TMĐT microservice nhất quán | 17 service (Node, Go, Python; thêm kế toán và kho ở chương 8) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 240 test tự động (179 ở chương 5 + 61 ở chương 8; chạy lại toàn bộ 22/11: Node 121, Go 20, Python 67 + 32 — 0 lỗi); test đồng thời inventory, promotion |
+| M1 — Sàn TMĐT microservice nhất quán | 17 service (Node, Go, Python; thêm kế toán và kho ở chương 8) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 250 test tự động (179 ở chương 5 + 71 ở chương 8; kiểm hồi quy toàn bộ 22/11 được 240, sau đó thêm 10); test đồng thời inventory, promotion |
 | M2 — DevSecOps có cổng chặn thật | Pipeline chặn khi test lỗi, lộ secret, CVE HIGH/CRITICAL; SBOM + Cosign keyless; Kyverno verifyImages | `ci.yml`; kyverno test 50/50 |
 | M3 — GitOps hybrid | Một repo cấu hình cho 4 môi trường; ApplicationSet đa cụm; canary + AnalysisTemplate; promote bằng PR | `make validate` 1027 manifest 0 lỗi |
 | M4 — Quan sát hợp nhất | OTel + LGTM, trace xuyên Kafka (traceparent trong sự kiện), log có trace_id, 4 dashboard, 3 SLO burn-rate | Chart + platform/observability |
@@ -29,7 +29,12 @@
 | Dự báo dung lượng + flash sale | Holt-Winters sai 2.3% ở đỉnh (giữ mức hiện tại sai 14%); học được hệ số flash sale ≈ 3 → KEDA scale trước | 8.21, 8.22 |
 | Change management | Chấm rủi ro từ diff + chính sách error budget → nhãn PR và cấu hình canary | 8.13 |
 | DevSecOps chuỗi cung ứng | SLSA provenance, OpenVEX, Scorecard, Kyverno kiểm attestation (Audit), canary có cổng AIOps | 8.6, 8.12 |
-| Workload doanh nghiệp | Sổ cái kép bất biến có chuỗi hash, khoá sổ, GTGT, tuổi nợ, đối soát COD/cổng TT; kho FIFO, kiểm kê mù four-eyes, ABC, đề xuất nhập | 8.3–8.4, 8.11–8.18 |
+| Workload doanh nghiệp | Sổ cái kép bất biến có chuỗi hash, khoá sổ + checklist sẵn sàng, GTGT, tuổi nợ, đối soát COD/cổng TT; kho FIFO, kiểm kê mù four-eyes, ABC, đề xuất nhập | 8.3–8.4, 8.11–8.18, 8.27 |
+| Sự cố "câm" (HTTP 200 nhưng người dùng bị ảnh hưởng) | Detector hạ tầng bắt **0/80**; thêm KPI có hướng + CUSUM bắt **80/80**, 0 báo động giả trên 40 đối chứng (kiểm 4 seed) | 8.20, 8.24, 8.25 |
+| Quan sát chính tác tử | Trace theo OTel GenAI semconv (invoke_agent / chat / execute_tool, tool.call.id = evidence id) | 8.23 |
+| Dự báo dung lượng | Thêm mùa vụ tuần: sáng thứ Bảy MAE 26.9 → 4.1 rps | 8.28 |
+| Platform engineering | Scorecard 11 luật chấm từ repo: lần đầu Gold 2 / Silver 2 / Bronze 13 → sau khi sửa luật + thêm SLO: Gold 2 / Silver 14 / Bronze 1 | 8.30 |
+| Vận hành SRE | Tìm sự cố tương tự, chất lượng cảnh báo (ồn / hạ ticket / giữ), tab SLO, bàn giao ca | 8.26, 8.29, 8.31 |
 
 ## 2. Đóng góp
 
@@ -58,7 +63,8 @@
 | Tác tử LLM mới đo bằng LLM giả lập | Không dùng API LLM trả phí trong đợt đánh giá | Mục 8.10 chứng minh bộ lọc grounding, chưa đo năng lực LLM thật |
 | Dự báo dung lượng, KPI, gom cảnh báo đo trên dữ liệu tổng hợp | Như trên: chưa có cụm và lưu lượng thật | Cần kiểm lại khi có Prometheus thật; chưa có mùa vụ tuần |
 | Trọng số chấm rủi ro thay đổi là prior do người đặt | Chưa có lịch sử deploy → sự cố để học | `fit()` sẵn sàng khi có dữ liệu |
-| Workflow mới (SLSA, Scorecard, change-risk) và policy attestation chưa chạy trên GitHub/cụm thật | Như hàng đầu | Mới kiểm cú pháp, render và test cục bộ |
+| Workflow mới (SLSA, Scorecard, change-risk, scorecard job) và policy attestation chưa chạy trên GitHub/cụm thật | Như hàng đầu | Mới kiểm cú pháp, render và test cục bộ |
+| CUSUM và ngưỡng KPI hiệu chỉnh trên nhiễu độc lập | Dữ liệu tổng hợp | Metric thật tự tương quan → cần chọn h theo ARL₀ trên dữ liệu thật |
 
 ## 4. Hướng phát triển
 
