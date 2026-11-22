@@ -56,6 +56,12 @@ class Interlock:
             return False, f"hành động {action!r} ngoài allowlist"
         if action == "notify":
             return True, "ok"
+        if action == "toggle_flag":
+            # tắt tính năng phụ là hành động AN TOÀN nhất lúc cao điểm (không đổi code/hạ tầng) → được cả trong giờ đóng băng;
+            # bật lại / đổi sang biến thể khác thì không cho tác tử tự đề xuất
+            if (rem.get("params") or {}).get("variant", "off") != "off":
+                return False, "tác tử chỉ được đề xuất TẮT flag"
+            return True, "ok"
         hour = time.gmtime(now).tm_hour
         for a, b in self.freeze:
             if (a <= hour < b) if a <= b else (hour >= a or hour < b):

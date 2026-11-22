@@ -17,6 +17,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+# khớp aiops/config/runbook.yaml `degradable` (test_kill_switch kiểm hai bên không lệch)
+DEGRADABLE = {"ai-service", "search"}
+
 SERVICES = ["api-gateway", "identity", "user-profile", "seller", "catalog", "search", "inventory", "cart",
             "promotion", "order", "payment", "shipping", "review", "notification", "ai-service"]
 # tỉ lệ request của gateway đi tới từng service
@@ -148,7 +151,8 @@ def simulate(sid: int, rng: np.random.Generator, T: int = 240, train: int = 120,
         elif fault == "pod_kill":
             expected = "restart" if crash else "notify"
         elif fault in ("latency", "cpu"):
-            expected = "scale_up"
+            # quá tải ở service có tính năng phụ tắt được → kill switch trước khi tốn thêm máy (runbook.degradable)
+            expected = "toggle_flag" if root in DEGRADABLE else "scale_up"
         else:
             expected = "notify"
     # ---- lan truyền: callee trước caller ----

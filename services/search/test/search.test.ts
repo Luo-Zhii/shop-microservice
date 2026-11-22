@@ -1,5 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createEvent, createService, newId, type Pool } from '@shopnow/platform';
 import { freshTestDb } from '@shopnow/platform/testing';
@@ -194,6 +196,15 @@ test('suggest: tiền tố tiêu đề + truy vấn phổ biến', async () => {
   assert.ok(mid.suggestions.includes('Quần jean ống đứng'), 'khớp tiền tố của từ giữa câu');
   const popular = (await app.inject({ method: 'GET', url: '/suggest' })).json();
   assert.equal(popular.suggestions[0], 'áo thun');
+  // kill switch search-suggest (GitOps flags.yaml): tắt → trả rỗng ngay, không chạm engine
+  const file = join(mkdtempSync(join(tmpdir(), 'search-flags-')), 'flags.json');
+  writeFileSync(file, JSON.stringify({ flags: { 'search-suggest': { state: 'ENABLED', variants: { on: true, off: false }, defaultVariant: 'off' } } }));
+  process.env.FLAGS_FILE = file;
+  try {
+    assert.deepEqual((await app.inject({ method: 'GET', url: '/suggest?q=ao' })).json(), { suggestions: [], disabled: true });
+  } finally {
+    delete process.env.FLAGS_FILE;
+  }
   const metrics = (await app.inject({ method: 'GET', url: '/metrics' })).body;
   assert.match(metrics, /search_requests_total\{.*engine="postgres"/);
 });

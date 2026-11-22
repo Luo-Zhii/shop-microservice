@@ -17,7 +17,7 @@
 - **RQ3** (phát hiện): ensemble tốt hơn ngưỡng tĩnh rõ rệt về recall và PA-F1, trong khi báo động giả thấp (0.17 lần/giờ).
 - **RQ4** (RCA): PageRank cá nhân hoá vượt PageRank thường (0.92 so với 0.44), nhưng chỉ ngang baseline "điểm lớn nhất"
   trên dữ liệu tổng hợp.
-- **RQ2, RQ5**: mới có số liệu mô hình hoá (MTTR ước lượng 297 s so với 497 s). Cần chạy trên cụm thật để kết luận.
+- **RQ2, RQ5**: mới có số liệu mô hình hoá (MTTR ước lượng 304 s so với 497 s). Cần chạy trên cụm thật để kết luận.
 
 **Kết quả của phần mở rộng (chương 8):**
 

@@ -25,7 +25,7 @@ scenario,kind,fault,root,t0,duration_steps,affected,detected_static,mttd_s_stati
 23,surge,-,-,148,18,0,-,,-,,-,,-,,,,,,,,,
 24,fault,latency,identity,140,15,2,0,,1,60,1,60,1,60,identity,1,1,scale_up,scale_up,1,255,450
 25,fault,error,inventory,166,18,3,1,90,1,60,1,60,1,60,inventory,1,1,rollback,rollback,1,285,540
-26,fault,cpu,search,162,14,2,0,,1,60,1,60,1,60,search,1,1,scale_up,scale_up,1,255,420
+26,fault,cpu,search,162,14,2,0,,1,60,1,60,1,60,search,1,1,toggle_flag,toggle_flag,1,345,420
 27,fault,pod_kill,catalog,195,12,4,1,60,1,60,1,60,1,60,catalog,1,1,restart,restart,1,240,360
-28,fault,latency,ai-service,150,19,2,0,,1,60,1,60,1,60,ai-service,1,1,scale_up,scale_up,1,255,570
+28,fault,latency,ai-service,150,19,2,0,,1,60,1,60,1,60,ai-service,1,1,toggle_flag,toggle_flag,1,345,570
 29,surge,-,-,181,17,0,-,,-,,-,,-,,,,,,,,,

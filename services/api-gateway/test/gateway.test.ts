@@ -1,6 +1,9 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import Redis from 'ioredis';
 import { createAuth, createService, newId } from '@shopnow/platform';
@@ -195,6 +198,22 @@ test('BFF product: gom catalog + review + flash sale; inventory/ai chết → de
   const nf = await gw.inject({ method: 'GET', url: '/api/bff/products/khong-ton-tai' });
   assert.equal(nf.statusCode, 404);
   assert.equal(nf.json().error.code, 'NOT_FOUND');
+});
+
+test('kill switch recommendations (flagd JSON qua GitOps): tắt → không gọi ai-service, không tính là degraded', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gw-flags-'));
+  const file = join(dir, 'flags.json');
+  writeFileSync(file, JSON.stringify({ flags: { recommendations: { state: 'ENABLED', variants: { on: true, off: false }, defaultVariant: 'off' } } }));
+  const prev = process.env.FLAGS_FILE;
+  process.env.FLAGS_FILE = file;
+  try {
+    const b = (await gw.inject({ method: 'GET', url: '/api/bff/products/ao-thun' })).json();
+    assert.deepEqual(b.recommendations, []);
+    assert.deepEqual(b.degraded, ['stock']);   // ai không được gọi → không còn 'recommendations' trong degraded
+  } finally {
+    if (prev === undefined) delete process.env.FLAGS_FILE;
+    else process.env.FLAGS_FILE = prev;
+  }
 });
 
 test('BFF home: thiếu nguồn phụ vẫn trả; catalog chết → lỗi UPSTREAM_ERROR', async () => {

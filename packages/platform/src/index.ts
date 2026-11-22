@@ -8,5 +8,6 @@ export * from './db';
 export * from './kafka';
 export * from './http';
 export * from './server';
+export * from './flags';
 export { z } from 'zod';
 export type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';

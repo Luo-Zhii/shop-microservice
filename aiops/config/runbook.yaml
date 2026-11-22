@@ -5,6 +5,11 @@ allow:
   namespaces: [shopnow]
   actions: [rollback, scale_up, restart]
 max_replicas: 6
+# Graceful degradation: service quá tải → feature flag (shop-gitops environments/<env>/flags.yaml) tắt được để cắt bớt tải
+# mà không rollback/không thêm máy. Tắt qua PR GitOps (người duyệt), service đọc lại flag ≤ 5s, không restart.
+degradable:
+  ai-service: recommendations     # gateway thôi gọi gợi ý sản phẩm; trang chủ/chi tiết sản phẩm vẫn bán được
+  search: search-suggest          # bỏ gợi ý gõ phím (gọi dày nhất); ô tìm kiếm chính vẫn chạy
 rules:
   - name: rollback-after-bad-deploy
     when: {recent_deploy: true}
@@ -21,6 +26,11 @@ rules:
     action: notify
     approval: auto
     reason: "Pod vừa bị khởi động lại (OOMKill/eviction/node) và đã chạy lại — theo dõi, không can thiệp."
+  - name: degrade-optional-feature
+    when: {recent_deploy: false, degradable: true, symptoms_any: [p95, cpu]}   # chỉ bão hoà; lỗi chưa rõ → người xử lý
+    action: toggle_flag
+    approval: required
+    reason: "Service phục vụ tính năng phụ đang quá tải, không có triển khai mới → tắt tính năng phụ (kill switch) trước khi tốn thêm tài nguyên."
   - name: scale-on-saturation
     when: {recent_deploy: false, symptoms_any: [cpu, p95]}
     action: scale_up

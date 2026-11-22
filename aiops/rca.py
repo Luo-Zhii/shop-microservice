@@ -100,4 +100,5 @@ def rank_plain_pagerank(graph: nx.DiGraph, scores: dict[str, float], top_k: int 
     if sub.number_of_edges() == 0:
         return rank_by_score({s: scores[s] for s in nodes}, top_k)
     pr = nx.pagerank(sub, alpha=0.85)
-    return [s for s, _ in sorted(pr.items(), key=lambda kv: -kv[1])[:top_k]]
+    # phá hoà theo tên: thứ tự node trong đồ thị đến từ set (đổi theo PYTHONHASHSEED) → không phá hoà thì baseline không tất định
+    return [s for s, _ in sorted(pr.items(), key=lambda kv: (-round(kv[1], 9), kv[0]))[:top_k]]

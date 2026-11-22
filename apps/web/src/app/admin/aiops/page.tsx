@@ -15,7 +15,7 @@ interface Step { n: number; thought: string; tool: string | null; evidence?: str
 interface Hypothesis { service: string; cause: string; confidence: number; evidence: string[] }
 interface Investigation {
   id: string; mode: 'llm' | 'planner'; steps: Step[]; hypotheses: Hypothesis[]; dropped_hypotheses: Hypothesis[]; grounding: number;
-  remediation: { action: string; service: string; reason: string; allowed: boolean; interlock: string; original_action?: string };
+  remediation: { action: string; service: string; reason: string; allowed: boolean; interlock: string; original_action?: string; params?: { flag?: string } };
   evidence: { id: string; tool: string; ok: boolean; data: unknown }[];
   cost: { tool_calls: number; llm_tokens: number; seconds: number; usd: number };
   pr?: { status: string; url?: string; dry_run?: boolean; diff?: string; problems?: string[] } | null; created_at: string;
@@ -465,7 +465,10 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
             <section>
               <SectionTitle>Đề xuất khắc phục</SectionTitle>
               <Card className="flex flex-col gap-2 p-3">
-                <KV label="Hành động"><span className="inline-flex items-center gap-1 font-medium"><Wrench className="size-4" />{latest.remediation.action} {latest.remediation.service}</span></KV>
+                <KV label="Hành động"><span className="inline-flex items-center gap-1 font-medium break-words"><Wrench className="size-4 shrink-0" />
+                  {latest.remediation.action === 'toggle_flag'
+                    ? `Tắt tính năng ${latest.remediation.params?.flag ?? ''} (kill switch, ${latest.remediation.service} quá tải)`
+                    : `${latest.remediation.action} ${latest.remediation.service}`}</span></KV>
                 <KV label="Lý do">{latest.remediation.reason}</KV>
                 <KV label="SafetyInterlock">
                   {latest.remediation.allowed ? <Badge tone="success">cho phép</Badge>
@@ -474,7 +477,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
                 {latest.pr?.url && <KV label="PR"><a className="text-primary underline break-all" href={latest.pr.url} target="_blank" rel="noreferrer">{latest.pr.url}</a></KV>}
                 {latest.pr?.problems && <KV label="Cổng xác minh"><span className="text-danger">{latest.pr.problems.join('; ')}</span></KV>}
                 {latest.pr?.diff && <pre className="max-h-48 overflow-auto rounded-lg bg-surface-2 p-2 text-xs whitespace-pre">{latest.pr.diff}</pre>}
-                {['rollback', 'scale_up'].includes(latest.remediation.action) && latest.remediation.allowed && !latest.pr?.url && (
+                {['rollback', 'scale_up', 'toggle_flag'].includes(latest.remediation.action) && latest.remediation.allowed && !latest.pr?.url && (
                   <Button variant="secondary" className="self-end" onClick={() => pr.mutate(latest.id)} disabled={pr.isPending}>
                     <GitPullRequest className="size-4" />Mở PR GitOps
                   </Button>

@@ -18,6 +18,8 @@ log = logging.getLogger("aiops.gitops_pr")
 
 IMAGE_LINE = re.compile(r'^(?P<indent>\s+)(?P<svc>[\w-]+):\s*\{tag:\s*"(?P<tag>[^"]*)",\s*digest:\s*"(?P<digest>[^"]*)"\}\s*$')
 REPLICA_LINE = re.compile(r"^(?P<indent>\s*)replicas:\s*(?P<n>\d+)\s*$")
+# một flag một dòng (environments/<env>/flags.yaml): `  <tên>: {state: ..., variants: {...}, defaultVariant: "on"}   # chú thích`
+FLAG_LINE = re.compile(r'^(?P<indent>\s+)(?P<flag>[\w.-]+):\s*\{(?P<body>.*defaultVariant:\s*"(?P<variant>[\w-]+)".*)\}(?P<tail>\s*(#.*)?)$')
 
 
 class PatchError(ValueError):
@@ -55,6 +57,26 @@ def patch_replicas(text: str, add: int, ceiling: int) -> str:
     return "\n".join(out) + "\n"
 
 
+def patch_flag(text: str, flag: str, variant: str = "off") -> str:
+    out, hit = [], False
+    for line in text.splitlines():
+        m = FLAG_LINE.match(line)
+        if m and m["flag"] == flag:
+            hit = True
+            if m["variant"] == variant:
+                raise PatchError(f"flag {flag} đã ở biến thể {variant}")
+            line = line[:m.start("variant")] + variant + line[m.end("variant"):]
+        out.append(line)
+    if not hit:
+        raise PatchError(f"không thấy flag {flag} trong flags.yaml")
+    return "\n".join(out) + "\n"
+
+
+def _path(action: str, svc: str, env: str) -> str | None:
+    return {"rollback": f"environments/{env}/images.yaml", "scale_up": f"environments/{env}/services/{svc}.yaml",
+            "toggle_flag": f"environments/{env}/flags.yaml"}.get(action)
+
+
 def build_change(remediation: dict, files: dict[str, str], env: str, deploys: list[dict], ceiling: int = 20) -> dict:
     """Trả {path, before, after, diff, title}. `files` = nội dung hiện tại theo đường dẫn trong repo gitops."""
     action, svc = remediation["action"], remediation["service"]
@@ -70,6 +92,13 @@ def build_change(remediation: dict, files: dict[str, str], env: str, deploys: li
         path = f"environments/{env}/services/{svc}.yaml"
         after = patch_replicas(files.get(path, ""), 2, ceiling)
         title = f"fix({svc}): AIOps đề xuất tăng replica"
+    elif action == "toggle_flag":
+        path = f"environments/{env}/flags.yaml"
+        flag = (remediation.get("params") or {}).get("flag")
+        if not flag:
+            raise PatchError("thiếu tên flag")
+        after = patch_flag(files.get(path, ""), flag, "off")
+        title = f"fix({svc}): AIOps đề xuất tắt tính năng {flag} (kill switch)"
     else:
         raise PatchError(f"hành động {action} không cần PR GitOps")
     before = files.get(path, "")
@@ -81,8 +110,7 @@ def verify(change: dict, remediation: dict, evidence_ids: set[str], env: str, ma
     """Cổng xác minh — trả danh sách lý do từ chối (rỗng = qua)."""
     problems: list[str] = []
     action, svc = remediation["action"], remediation["service"]
-    allowed = {"rollback": f"environments/{env}/images.yaml", "scale_up": f"environments/{env}/services/{svc}.yaml"}
-    if change["path"] != allowed.get(action):
+    if change["path"] != _path(action, svc, env):
         problems.append(f"file {change['path']} không khớp hành động {action}")
     changed = [ln for ln in change["diff"].splitlines() if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
     if not changed:
@@ -94,6 +122,18 @@ def verify(change: dict, remediation: dict, evidence_ids: set[str], env: str, ma
             m = IMAGE_LINE.match(ln[1:])
             if not m or m["svc"] != svc:
                 problems.append(f"dòng đổi không thuộc {svc}: {ln.strip()[:80]}")
+    if action == "toggle_flag":
+        # đúng 1 dòng bỏ + 1 dòng thêm của flag đã nêu; dòng mới phải TRÙNG NGUYÊN VĂN dòng cũ chỉ khác defaultVariant → "off"
+        flag = (remediation.get("params") or {}).get("flag")
+        minus = [ln[1:] for ln in changed if ln.startswith("-")]
+        plus = [ln[1:] for ln in changed if ln.startswith("+")]
+        m = FLAG_LINE.match(minus[0]) if len(minus) == 1 else None
+        if len(minus) != 1 or len(plus) != 1 or not m or not FLAG_LINE.match(plus[0]):
+            problems.append("diff flag phải đúng một dòng flag bị thay")
+        elif m["flag"] != flag:
+            problems.append(f"dòng đổi không phải flag {flag}")
+        elif plus[0] != minus[0][:m.start("variant")] + "off" + minus[0][m.end("variant"):]:
+            problems.append('chỉ được đổi defaultVariant sang "off" (không đổi state/variants, không bật)')
     cites = set(re.findall(r"ev-\d+", remediation.get("reason", "")))
     if not cites:
         problems.append("lý do không trích bằng chứng (ev-N)")
@@ -142,12 +182,11 @@ def propose_pr(investigation: dict, gh: GitHubGitOps, env: str, ceiling: int = 2
     from ..metrics import GITOPS_PRS
 
     rem = investigation["remediation"]
-    if not rem.get("allowed") or rem["action"] not in ("rollback", "scale_up"):
+    if not rem.get("allowed") or rem["action"] not in ("rollback", "scale_up", "toggle_flag"):
         return {"status": "skipped", "reason": rem.get("interlock") or f"{rem['action']} không cần PR"}
     deploys = next((e["data"].get("changes", []) for e in investigation["evidence"]
                     if e["tool"] == "recent_deployments" and e["ok"]), [])
-    path = (f"environments/{env}/images.yaml" if rem["action"] == "rollback"
-            else f"environments/{env}/services/{rem['service']}.yaml")
+    path = _path(rem["action"], rem["service"], env)
     text, sha = gh.read(path)
     try:
         change = build_change(rem, {path: text}, env, deploys, ceiling)

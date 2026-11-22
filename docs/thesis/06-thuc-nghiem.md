@@ -77,8 +77,10 @@ rộng và service gốc không có điểm cao nhất; điều này cần kiể
 ### Tác tử khắc phục (RQ5)
 
 - Chọn đúng service gốc **và** đúng loại hành động theo runbook ở **92%** kịch bản.
-- MTTR ước lượng: **297 s** với AIOps so với **497 s** khi chẩn đoán thủ công, tức giảm khoảng 40%. Đây là số từ mô hình
-  phân tích (thông báo 15 s, chờ duyệt 120 s, thực thi 45–90 s, chẩn đoán tay 900 s), chưa phải số đo thật. Số đo thật lấy
+- MTTR ước lượng: **304 s** với AIOps so với **497 s** khi chẩn đoán thủ công, tức giảm khoảng 39%. Đây là số từ mô hình
+  phân tích (thông báo 15 s, chờ duyệt 120 s, thực thi 45–90 s, tắt tính năng qua PR GitOps 150 s, chẩn đoán tay 900 s),
+  chưa phải số đo thật. Trước mục 8.35 con số là 297 s: quá tải ở `ai-service`/`search` khi đó được xử lý bằng scale
+  (60 s), nay bằng kill switch (150 s) — chậm hơn một chút nhưng không tốn thêm tài nguyên. Số đo thật lấy
   bằng `python -m aiops.eval.chaos_runner` trên cụm có Chaos Mesh.
 
 ## 6.5. DevSecOps (RQ2)

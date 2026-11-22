@@ -1,4 +1,4 @@
-import { counter, parsePage, z, type FastifyInstance, type Logger } from '@shopnow/platform';
+import { counter, isEnabled, parsePage, z, type FastifyInstance, type Logger } from '@shopnow/platform';
 import { SORTS, type SearchEngine, type SearchQuery } from './types';
 
 const num = z.coerce.number().int().min(0);
@@ -48,6 +48,8 @@ export function registerRoutes(app: FastifyInstance, deps: { engine: SearchEngin
   app.get('/suggest', async (req) => {
     searchRequests().inc({ engine: engine.name, endpoint: 'suggest' });
     const q = z.object({ q: z.string().max(100).default(''), limit: z.coerce.number().int().min(1).max(20).default(8) }).parse(req.query);
+    // kill switch `search-suggest`: gợi ý gõ phím gọi rất dày → tắt khi engine quá tải, ô tìm kiếm chính vẫn chạy
+    if (!isEnabled('search-suggest')) return { suggestions: [], disabled: true };
     return { suggestions: await engine.suggest(q.q, q.limit) };
   });
 }

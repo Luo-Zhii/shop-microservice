@@ -35,7 +35,7 @@ GRACE = 4
 METHODS = ("static", "zscore", "iforest", "aiops")
 
 # Tham số mô hình MTTR (giả định, ghi rõ trong báo cáo)
-MTTR = dict(notify_s=15, approval_s=120, exec_s={"rollback": 90, "scale_up": 60, "restart": 45},
+MTTR = dict(notify_s=15, approval_s=120, exec_s={"rollback": 90, "scale_up": 60, "restart": 45, "toggle_flag": 150},
             manual_diag_s=900, user_report_s=600)
 
 

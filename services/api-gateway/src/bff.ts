@@ -1,4 +1,4 @@
-import { counter, serviceClient, type FastifyInstance, type FastifyRequest, type ServiceClient } from '@shopnow/platform';
+import { counter, isEnabled, serviceClient, type FastifyInstance, type FastifyRequest, type ServiceClient } from '@shopnow/platform';
 import type { Upstreams } from './config';
 
 /** Lấy mảng từ phản hồi dạng `[...]` hoặc `{ items: [...] }`. */
@@ -65,7 +65,9 @@ export function registerBff(app: FastifyInstance, deps: { upstreams: Upstreams; 
         banners: catalog.get('/banners', h),
         categories: catalog.get('/categories', h),
         flashSales: promotion.get('/flash-sales/active', h),
-        recommendations: userId ? ai.get(`/recommendations/user/${encodeURIComponent(userId)}?limit=12`, h) : Promise.resolve(null),
+        // kill switch `recommendations` (GitOps flags.yaml): ai-service quá tải → tắt gợi ý, trang chủ vẫn bán được hàng
+        recommendations: userId && isEnabled('recommendations')
+          ? ai.get(`/recommendations/user/${encodeURIComponent(userId)}?limit=12`, h) : Promise.resolve(null),
       },
       degraded,
     );
@@ -94,7 +96,8 @@ export function registerBff(app: FastifyInstance, deps: { upstreams: Upstreams; 
         stock: skuIds.length ? inventory.get(`/stock?skuIds=${skuIds.map(encodeURIComponent).join(',')}`, h) : Promise.resolve([]),
         reviewSummary: review.get(`/products/${encodeURIComponent(product.id)}/summary`, h),
         flashSales: promotion.get('/flash-sales/active', h),
-        recommendations: ai.get(`/recommendations/product/${encodeURIComponent(product.id)}?limit=12`, h),
+        recommendations: isEnabled('recommendations')
+          ? ai.get(`/recommendations/product/${encodeURIComponent(product.id)}?limit=12`, h) : Promise.resolve(null),
       },
       degraded,
     );

@@ -31,7 +31,10 @@ class Executor:
     def execute(self, action: dict) -> dict:
         typ, target, params = action["type"], action.get("target") or {}, action.get("params") or {}
         ns, kind, name = target.get("namespace"), target.get("kind", "Deployment"), target.get("name")
-        if typ not in self.allow_actions:
+        if typ == "toggle_flag":
+            # sửa thẳng ConfigMap sẽ bị Argo CD selfHeal ghi đè → flag chỉ đổi qua PR GitOps (người duyệt merge)
+            res = {"result": "gitops_required", "detail": f"tắt flag {params.get('flag')} qua PR GitOps (environments/<env>/flags.yaml)"}
+        elif typ not in self.allow_actions:
             res = {"result": "denied", "detail": f"hành động {typ} không nằm trong allowlist"}
         elif ns not in self.allow_ns:
             res = {"result": "denied", "detail": f"namespace {ns} không nằm trong allowlist"}

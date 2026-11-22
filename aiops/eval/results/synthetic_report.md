@@ -1,7 +1,7 @@
 # Đánh giá AIOps trên dữ liệu tổng hợp ShopNow
 
 - Kịch bản: **30** (25 có lỗi tiêm, 5 tăng tải lành tính), 15 service × 240 bước × 30s (60 phút huấn luyện + 60 phút đánh giá), seed=42
-- Ngưỡng điểm = 0.6, lọc bền vững 2 bước liên tiếp; thời gian chạy 50.3 s
+- Ngưỡng điểm = 0.6, lọc bền vững 2 bước liên tiếp; thời gian chạy 54.2 s
 
 ## 1. Phát hiện bất thường
 
@@ -29,14 +29,14 @@ Point-wise trên (kịch bản × service × bước) sau huấn luyện; nhãn 
 |---|---|---|---|---|
 | Personalized PageRank + tương quan (đề xuất) | 0.92 | 1.0 | 0.92 | 1.0 |
 | Điểm bất thường lớn nhất | 0.92 | 1.0 | 0.92 | 1.0 |
-| PageRank thường trên đồ thị con | 0.44 | 0.88 | 0.44 | 0.92 |
+| PageRank thường trên đồ thị con | 0.44 | 0.88 | 0.48 | 0.92 |
 
 Số kịch bản RCA: sau phát hiện = 25, oracle = 25. RCA chạy 2 phút sau cảnh báo đầu tiên, cửa sổ tín hiệu ≤ 10 phút trước đó.
 
 ## 4. Tác tử: chọn hành động & MTTR ước lượng
 
 - Độ đúng hành động (đúng service gốc **và** đúng loại hành động theo runbook): **0.92**
-- MTTR TB: AIOps **297 s** (trung vị 255) vs thủ công **496.8 s** (trung vị 540)
+- MTTR TB: AIOps **304.2 s** (trung vị 255) vs thủ công **496.8 s** (trung vị 540)
 
 Giả định MTTR: gửi thông báo 15s, chờ duyệt 120s, thực thi rollback/scale/restart = 90/60/45s; chẩn đoán thủ công 900s; không có cảnh báo → người dùng báo sau 600s; MTTR bị chặn trên bởi thời điểm lỗi tự hết. Đây là mô hình phân tích, KHÔNG phải đo thật — số đo thật lấy từ `python -m aiops.eval.chaos_runner`.
 

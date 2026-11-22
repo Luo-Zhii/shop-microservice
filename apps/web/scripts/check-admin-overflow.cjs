@@ -11,7 +11,7 @@ const inv = {
   steps: [{ n: 1, thought: 'Xem triển khai gần đây của catalog trong 60 phút với nhiều chữ để thử xuống dòng', tool: 'recent_deployments', evidence: 'ev-1', ok: true }, { n: 2, thought: 'công cụ bịa', tool: 'kubectl_delete', evidence: 'ev-2', ok: false }],
   hypotheses: [{ service: 'catalog', cause: 'triển khai mới revision 7 (ghcr.io/luo-zhii/shopnow/catalog:sha-old6666 → ghcr.io/luo-zhii/shopnow/catalog:sha-new7777)', confidence: 0.8, evidence: ['ev-1', 'ev-3'] }],
   dropped_hypotheses: [{ service: 'payment', cause: 'x', confidence: 0.8, evidence: [] }],
-  remediation: { action: 'rollback', service: 'catalog', reason: 'deploy mới (ev-1)', allowed: true, interlock: 'ok' },
+  remediation: { action: 'toggle_flag', service: 'ai-service-very-long-service-name', params: { flag: 'recommendations-for-homepage-and-product-detail' }, reason: 'ai-service p95 tăng, không có deploy (ev-1)', allowed: true, interlock: 'ok' },
   evidence: [], cost: { tool_calls: 7, llm_tokens: 5400, seconds: 3.21, usd: 0.0162 },
   pr: { status: 'proposed', url: 'https://github.com/Luo-Zhii/shop-gitops/pull/1234567', diff: '--- a/environments/dev/images.yaml\n+++ b/environments/dev/images.yaml\n-  catalog: {tag: "sha-new7777777777777777777777", digest: "sha256:abcdef0123456789abcdef0123456789"}\n+  catalog: {tag: "sha-old6666", digest: ""}' },
 };
