@@ -12,6 +12,7 @@ import {
   type Pool,
 } from '@shopnow/platform';
 import { localDate, periodOf, postEntry, reverseEntry, trialBalance, verifyChain, withLines, type EntryRow } from './ledger';
+import { staleBalances } from './health';
 import { postSlaCredit } from './posting';
 
 export interface RouteDeps {
@@ -258,22 +259,11 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     const reconExc = [...latest.values()].reduce((a, b) => a + b, 0);
     add('gateway_recon', 'Đã đối soát cổng thanh toán, không còn ngoại lệ', latest.size > 0 && reconExc === 0, false,
       latest.size === 0 ? 'chưa đối soát kỳ này' : reconExc ? `${reconExc} dòng ngoại lệ ở lần đối soát gần nhất` : undefined);
-    const escrow = await pool.query<{ n: number; amount: number }>(
-      `SELECT count(*)::int AS n, COALESCE(SUM(bal),0)::bigint AS amount FROM (
-         SELECT l.party_id, SUM(l.credit - l.debit) AS bal, max(e.entry_date) AS last_date
-           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
-          WHERE l.account = '3388' AND e.entry_date <= $1 GROUP BY l.party_id) t
-        WHERE bal > 0 AND last_date <= ($1::date - $2::int)`, [end, staleDays]);
-    add('escrow_stale', `Không có tiền thu hộ (3388) treo quá ${staleDays} ngày`, Number(escrow.rows[0].n) === 0, false,
-      Number(escrow.rows[0].n) ? `${escrow.rows[0].n} checkout, ${escrow.rows[0].amount} đ — đơn chưa hoàn tất/hoàn tiền` : undefined);
-    const cod = await pool.query<{ n: number; amount: number }>(
-      `SELECT count(*)::int AS n, COALESCE(SUM(bal),0)::bigint AS amount FROM (
-         SELECT l.order_id, SUM(l.debit - l.credit) AS bal, min(e.entry_date) AS first_date
-           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
-          WHERE l.account = '1388' AND e.entry_date <= $1 GROUP BY l.order_id) t
-        WHERE bal > 0 AND first_date <= ($1::date - $2::int)`, [end, staleDays]);
-    add('cod_open', `ĐVVC đã trả COD giao quá ${staleDays} ngày`, Number(cod.rows[0].n) === 0, false,
-      Number(cod.rows[0].n) ? `${cod.rows[0].n} đơn, ${cod.rows[0].amount} đ chưa đối soát COD` : undefined);
+    const { escrow, cod } = await staleBalances(pool, end, staleDays);
+    add('escrow_stale', `Không có tiền thu hộ (3388) treo quá ${staleDays} ngày`, escrow.n === 0, false,
+      escrow.n ? `${escrow.n} checkout, ${escrow.amount} đ — đơn chưa hoàn tất/hoàn tiền` : undefined);
+    add('cod_open', `ĐVVC đã trả COD giao quá ${staleDays} ngày`, cod.n === 0, false,
+      cod.n ? `${cod.n} đơn, ${cod.amount} đ chưa đối soát COD` : undefined);
     const vat = await pool.query<{ out_vat: number; inv_vat: number }>(
       `SELECT (SELECT COALESCE(SUM(l.credit - l.debit),0) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
                 WHERE l.account = '33311' AND e.period = $1)::bigint AS out_vat,

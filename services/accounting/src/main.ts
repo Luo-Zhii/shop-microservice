@@ -4,6 +4,8 @@ import { createAuth, createPool, createService, ensureDatabase, EventBus, migrat
 import { Topics } from '@shopnow/contracts';
 import { cfg } from './config';
 import { registerConsumers } from './posting';
+import { refreshFinanceGauges } from './health';
+import { localDate } from './ledger';
 import { registerRoutes } from './routes';
 
 async function main() {
@@ -27,7 +29,12 @@ async function main() {
   svc.addReadiness('kafka', () => {
     if (!bus.isConnected) throw new Error('kafka chưa kết nối');
   });
+  // KPI nghiệp vụ cho AIOps: tiền thu hộ treo / COD chưa đối soát — 5 phút/lần (truy vấn tổng hợp, không chạy mỗi scrape)
+  const fin = () => refreshFinanceGauges(pool, localDate(new Date(), cfg.TIMEZONE)).catch((err) => log.warn({ err }, 'tính KPI tài chính lỗi'));
+  void fin();
+  const finTimer = setInterval(fin, 300_000);
   svc.onShutdown(async () => {
+    clearInterval(finTimer);
     stopRelay();
     await bus.stop();
     await pool.end();

@@ -69,6 +69,8 @@ features:
     / clamp_min(sum(rate(payments_total{result=~"succeeded|failed"}[{window}])), 1e-9), "service", "payment", "", "")
   # KPI vận hành kho: số phiếu lấy hàng quá hạn xuất theo giờ cắt đơn (tăng là xấu) — tắc kho dù API vẫn 200
   pick_overdue: label_replace(max(warehouse_picks_overdue), "service", "warehouse", "", "")
+  # KPI tài chính: checkout có tiền thu hộ (3388) treo > 15 ngày — saga đơn kẹt, khách đã trả mà đơn không xong
+  escrow_stale: label_replace(max(accounting_escrow_stale_checkouts), "service", "accounting", "", "")
 
 # KPI có hướng — detection/kpi.py chấm robust z theo chiều xấu, gộp vào điểm bất thường của service
 kpis:
@@ -83,6 +85,8 @@ kpis:
     pay_fail: {direction: up, min_level: 0.02}
   warehouse:
     pick_overdue: {direction: up, min_level: 1}
+  accounting:
+    escrow_stale: {direction: up, min_level: 1}
 rate_window: 1m
 
 detection:
