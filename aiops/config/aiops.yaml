@@ -161,6 +161,11 @@ status_page:
     - {id: account, name: "Tài khoản & thông báo", services: [identity, user-profile, notification]}
     - {id: seller, name: "Kênh người bán", services: [seller, accounting]}
 
+# Right-sizing (rightsizing.py): đơn giá giống OpenCost mặc định (on-prem: chi phí khấu hao quy đổi), cần ≥ 3 ngày dữ liệu
+finops:
+  min_days: 3
+  price: {cpu_core_hour: 0.031611, ram_gib_hour: 0.004237}
+
 # Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
 business:
   default_aov_vnd: 350000

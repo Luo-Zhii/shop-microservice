@@ -17,6 +17,7 @@ POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + can
 POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật (promote.yml) → gắn nhãn sau 2h theo RCA → học lại trọng số
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
+GET  /finops/rightsizing · POST /finops/rightsizing/{svc}/propose-pr  requests vs dùng thật 7 ngày → đề xuất + PR GitOps
 GET  /synthetic/status                 hành trình mua hàng tổng hợp theo vị trí (on-prem/AWS), bước hỏng, p95
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
@@ -389,6 +390,63 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         responder.store.audit(request.headers.get("x-actor", "api"), "gitops_pr_" + pr["status"], inv["incident_id"],
                               details={"investigation": investigation_id, **{k: pr.get(k) for k in ("url", "problems")}})
         return pr
+
+    # ---------------------------------------------------------------- FinOps: right-sizing requests
+    def rightsizing_report() -> dict:
+        from .rightsizing import analyze
+
+        fin = settings.raw.get("finops") or {}
+        return analyze(responder.prom, settings.namespace, fin.get("price"), float(fin.get("min_days", 3)))
+
+    @app.get("/finops/rightsizing")
+    def rightsizing():
+        """requests khai báo so với mức dùng thật 7 ngày → đề xuất CPU/RAM + tiết kiệm USD/tháng (giải thích được)."""
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        return rightsizing_report()
+
+    @app.post("/finops/rightsizing/{service}/propose-pr")
+    def rightsizing_pr(service: str, request: Request):
+        """Mở PR GitOps đổi requests của MỘT service (cổng xác minh: đúng file, chỉ dòng requests, giảm ≤ 50%/lần)."""
+        import difflib
+
+        from .rightsizing import patch_requests, verify_patch
+
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        item = next((x for x in rightsizing_report()["items"] if x["service"] == service), None)
+        if item is None or item["direction"] == "keep":
+            return err(409, "NOT_ACTIONABLE", "không có đề xuất cho service này (đủ dữ liệu và lệch ≥ 25%)")
+        path = f"apps/shopnow/services/{service}.yaml"
+        try:
+            before, sha = gitops.read(path)
+        except httpx.HTTPError as e:
+            return err(502, "UPSTREAM_ERROR", f"GitHub lỗi: {e}")
+        rec = item["recommended"]
+        after = patch_requests(before, rec["cpu_m"], rec["mem_mi"])
+        diff = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), f"a/{path}", f"b/{path}"))
+        problems = verify_patch(diff, path, service, item["current"])
+        actor = request.headers.get("x-actor", "api")
+        if problems:
+            responder.store.audit(actor, "rightsizing_pr_rejected", details={"service": service, "problems": problems})
+            return {"status": "rejected", "problems": problems, "diff": diff}
+        verb = "tăng" if item["direction"] == "increase" else "giảm"
+        change = {"path": path, "after": after, "diff": diff,
+                  "title": f"chore({service}): AIOps right-sizing {verb} requests → cpu {rec['cpu_m']}m, mem {rec['mem_mi']}Mi"}
+        body = (f"Đề xuất right-sizing từ mức dùng thật 7 ngày ({item['days_of_data']} ngày dữ liệu) — **cần người duyệt**.\n\n"
+                f"| | CPU | RAM |\n|---|---|---|\n| Đang khai | {item['current']['cpu_m']}m | {item['current']['mem_mi']}Mi |\n"
+                f"| Dùng thật (p95 CPU / đỉnh RAM) | {item['usage']['cpu_p95_m']}m | {item['usage']['mem_max_mi']}Mi |\n"
+                f"| Đề xuất | {rec['cpu_m']}m | {rec['mem_mi']}Mi |\n\n"
+                f"Tiết kiệm ước tính: **{item['monthly_saving_usd']} USD/tháng** ({item['replicas']} replica). "
+                + ("Đây mới là một nấc (giảm tối đa 50%/lần) — quan sát rồi chạy lại để giảm tiếp. " if item["staged"] else "")
+                + "Canary + AnalysisTemplate tự rollback nếu latency/lỗi xấu đi.")
+        try:
+            pr = gitops.open_pr(change, body, sha)
+        except httpx.HTTPError as e:
+            return err(502, "UPSTREAM_ERROR", f"GitHub lỗi: {e}")
+        responder.store.audit(actor, "rightsizing_pr_opened", details={"service": service, "url": pr.get("url"),
+                                                                        "saving_usd": item["monthly_saving_usd"]})
+        return {"status": "proposed", "diff": diff, "title": change["title"], **pr}
 
     def flash_sales(start: float, end: float) -> list[tuple[float, float]]:
         """Lịch flash sale từ promotion trong [start, end] → [(bắt đầu, kết thúc)] epoch giây. Lỗi mạng ném lên cho nơi gọi."""

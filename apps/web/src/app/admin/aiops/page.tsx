@@ -263,6 +263,7 @@ function Capacity() {
           </>
         )}
       </QueryView>
+      <RightSizing />
     </>
   );
 }
@@ -429,6 +430,52 @@ function Changes() {
         )}
       </QueryView>
     </div>
+  );
+}
+
+interface RsItem {
+  service: string; replicas: number; days_of_data: number; enough_data: boolean; direction: 'increase' | 'decrease' | 'keep';
+  usage: { cpu_p95_m: number; mem_max_mi: number }; current: { cpu_m: number; mem_mi: number }; recommended: { cpu_m: number; mem_mi: number };
+  monthly_saving_usd: number; staged: boolean; mem_capped_at_limit: boolean;
+}
+const RS_DIR: Record<RsItem['direction'], { label: string; tone: Tone }> = {
+  decrease: { label: 'Giảm', tone: 'success' }, increase: { label: 'Tăng (đang thiếu)', tone: 'warning' }, keep: { label: 'Giữ', tone: 'neutral' },
+};
+
+/** Right-sizing: requests khai báo vs dùng thật 7 ngày → đề xuất + tiết kiệm; mở PR GitOps qua cổng xác minh (người duyệt). */
+function RightSizing() {
+  const q = useQuery({ queryKey: ['aiops-rightsizing'], retry: false, queryFn: () => api.get<{ monthly_saving_usd: number; items: RsItem[] }>('/aiops/finops/rightsizing') });
+  const pr = useMutation({
+    mutationFn: (svc: string) => api.post<{ status: string; url?: string; dry_run?: boolean; problems?: string[] }>(`/aiops/finops/rightsizing/${svc}/propose-pr`),
+    onSuccess: (r) => {
+      if (r.status === 'proposed') toast.success(r.dry_run ? 'Đã tạo bản vá (dry-run, chưa có token GitHub)' : 'Đã mở PR GitOps — chờ duyệt');
+      else toast.error(`Cổng xác minh chặn: ${(r.problems ?? []).join('; ')}`);
+    },
+  });
+  const res = (cpu: number, mem: number) => `${cpu}m · ${mem}Mi`;
+  if (!q.data?.items.length) return null;
+  const d = q.data;
+  return (
+    <section className="mt-6">
+      <SectionTitle>Right-sizing tài nguyên (7 ngày)</SectionTitle>
+      <p className="-mt-2 mb-3 text-sm text-muted break-words">
+        Tiết kiệm ước tính <b className="text-success">${d.monthly_saving_usd.toFixed(2)}/tháng</b> nếu áp dụng các đề xuất.
+        Quy tắc: p95 CPU × 1,2 · đỉnh RAM × 1,15 · giảm tối đa 50%/lần · cần ≥ 3 ngày dữ liệu.
+      </p>
+      <DataTable rows={d.items} rowKey={(i) => i.service}
+        columns={[
+          { key: 'svc', header: 'Service', primary: true, cell: (i) => <span className="font-mono text-sm">{i.service}</span> },
+          { key: 'dir', header: 'Đề xuất', badge: true, cell: (i) => <Badge tone={RS_DIR[i.direction].tone}>{RS_DIR[i.direction].label}{i.staged ? ' · nấc 1' : ''}</Badge> },
+          { key: 'cur', header: 'Đang khai', cell: (i) => res(i.current.cpu_m, i.current.mem_mi) },
+          { key: 'use', header: 'Dùng thật', hideOnMobile: true, cell: (i) => <span className="text-muted">{res(i.usage.cpu_p95_m, i.usage.mem_max_mi)}</span> },
+          { key: 'rec', header: 'Mức mới', cell: (i) => (i.direction === 'keep' ? '—' : <b>{res(i.recommended.cpu_m, i.recommended.mem_mi)}</b>) },
+          { key: 'save', header: 'USD/tháng', align: 'right', cell: (i) => (i.direction === 'keep'
+            ? (i.enough_data ? '—' : <span className="text-xs text-muted">mới {i.days_of_data} ngày dữ liệu</span>)
+            : <b className={i.monthly_saving_usd >= 0 ? 'text-success' : 'text-warning'}>{i.monthly_saving_usd >= 0 ? '−' : '+'}${Math.abs(i.monthly_saving_usd).toFixed(2)}</b>) },
+          { key: 'pr', header: 'PR', cell: (i) => (i.direction === 'keep' ? null
+            : <Button size="sm" variant="outline" onClick={() => pr.mutate(i.service)} disabled={pr.isPending}><GitPullRequest className="size-4" />Mở PR</Button>) },
+        ]} />
+    </section>
   );
 }
 
