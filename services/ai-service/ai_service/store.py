@@ -29,6 +29,17 @@ CREATE TABLE IF NOT EXISTS purchases (
   PRIMARY KEY (order_id, product_id)
 );
 CREATE INDEX IF NOT EXISTS purchases_buyer_idx ON purchases (buyer_id, completed_at DESC);
+-- FinOps cho GenAI: chi phí LLM cộng dồn theo ngày (giờ VN) × tính năng × provider; dùng chung mọi replica
+CREATE TABLE IF NOT EXISTS llm_usage (
+  day           date NOT NULL,
+  feature       text NOT NULL,
+  provider      text NOT NULL,
+  calls         integer NOT NULL DEFAULT 0,
+  input_tokens  bigint NOT NULL DEFAULT 0,
+  output_tokens bigint NOT NULL DEFAULT 0,
+  cost_usd      numeric(14,6) NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, feature, provider)
+);
 CREATE TABLE IF NOT EXISTS processed_events (
   event_id     text PRIMARY KEY,
   topic        text NOT NULL,
@@ -187,7 +198,24 @@ class PgStore:
         self._run(tx)
 
     def truncate(self) -> None:
-        self._run(lambda cur: cur.execute("DELETE FROM products; DELETE FROM purchases; DELETE FROM processed_events"))
+        self._run(lambda cur: cur.execute("DELETE FROM products; DELETE FROM purchases; DELETE FROM processed_events; DELETE FROM llm_usage"))
+
+    # ---- chi phí LLM ----
+    def add_llm_usage(self, day, feature: str, provider: str, tin: int, tout: int, cost: float) -> None:
+        self._run(lambda cur: cur.execute(
+            """INSERT INTO llm_usage (day, feature, provider, calls, input_tokens, output_tokens, cost_usd)
+               VALUES (%s, %s, %s, 1, %s, %s, %s)
+               ON CONFLICT (day, feature, provider) DO UPDATE SET calls = llm_usage.calls + 1,
+                 input_tokens = llm_usage.input_tokens + EXCLUDED.input_tokens,
+                 output_tokens = llm_usage.output_tokens + EXCLUDED.output_tokens,
+                 cost_usd = llm_usage.cost_usd + EXCLUDED.cost_usd""", (day, feature, provider, tin, tout, cost)))
+
+    def llm_usage(self, day) -> list[dict]:
+        def q(cur):
+            cur.execute("SELECT feature, provider, calls, input_tokens, output_tokens, cost_usd FROM llm_usage WHERE day = %s", (day,))
+            return [{"feature": f, "provider": p, "calls": c, "input_tokens": i, "output_tokens": o, "cost_usd": float(u)}
+                    for f, p, c, i, o, u in cur.fetchall()]
+        return self._run(q)
 
     def close(self) -> None:
         with self._lock:
@@ -197,7 +225,21 @@ class PgStore:
 
 
 class MemoryStore:
+    def add_llm_usage(self, day, feature, provider, tin, tout, cost):
+        with self._lock:
+            r = self.llm.setdefault((day, feature, provider), {"feature": feature, "provider": provider, "calls": 0,
+                                                               "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+            r["calls"] += 1
+            r["input_tokens"] += tin
+            r["output_tokens"] += tout
+            r["cost_usd"] += cost
+
+    def llm_usage(self, day):
+        with self._lock:
+            return [dict(v) for (d, _f, _p), v in self.llm.items() if d == day]
+
     def __init__(self):
+        self.llm: dict = {}
         self.products: dict[str, dict] = {}
         self.purchases: dict[tuple[str, str], tuple] = {}
         self.processed: set[str] = set()

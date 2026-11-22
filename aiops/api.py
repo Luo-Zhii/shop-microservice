@@ -555,11 +555,17 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     @app.get("/platform/summary")
     def platform_summary():
         out = {"incidents_open": responder.store.count_open(), "cost_per_order_usd": None, "lcp_p75_s": None,
+               "llm_cost_24h_usd": None, "llm_budget_remaining": None, "llm_degraded": None, "synthetic_ok": None,
                "error_budget": {}, "prometheus": responder.prom is not None}
         if responder.prom is None:
             return out
         queries = {"cost_per_order_usd": "shopnow:cost_per_order_usd",
-                   "lcp_p75_s": 'histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[30m])))'}
+                   "lcp_p75_s": 'histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[30m])))',
+                   # FinOps cho GenAI (ai-service llm/budget.py) + robot giám sát tổng hợp (services/synthetic)
+                   "llm_cost_24h_usd": "sum(increase(ai_llm_cost_usd_total[24h]))",
+                   "llm_budget_remaining": "min(ai_llm_budget_remaining_ratio)",
+                   "llm_degraded": "max(ai_llm_degraded)",
+                   "synthetic_ok": "min(synthetic_journey_success)"}
         for key, q in queries.items():
             try:
                 res = responder.prom.query(q)

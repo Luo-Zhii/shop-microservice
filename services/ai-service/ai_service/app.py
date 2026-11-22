@@ -31,6 +31,7 @@ from .consumer import EventConsumer
 from .engine import CatalogIndex, FaqIndex, load_faq
 from .generator import generate
 from .llm.base import LLMError, safe_build_provider
+from .llm.budget import BudgetGuard
 from .moderation import moderate
 from .observability import (LLM_CALLS, MODEL_ITEMS, MODEL_REBUILD, install_http_metrics, setup_logging,
                             setup_tracing)
@@ -66,6 +67,9 @@ class AiState:
         self.settings = settings
         self.store = store or make_store(settings.database_url)
         self.llm = llm if llm is not None else safe_build_provider(log, name=settings.llm_provider)
+        # chat / sinh mô tả / kiểm duyệt đi qua ngân sách; embedding dùng provider gốc (rẻ, phục vụ tìm kiếm)
+        self.guard = BudgetGuard(self.llm, self.store, settings.llm_price_in, settings.llm_price_out,
+                                 settings.llm_daily_budget, service=settings.service_name)
         self.faq = FaqIndex.build(load_faq(settings.faq_path))
         self.catalog = CatalogIndex()
         self.version: Any = None
@@ -203,20 +207,26 @@ def create_app(settings: Settings | None = None, store=None, llm=None) -> FastAP
     @app.post("/chat")
     def chat(body: ChatIn):
         st = state()
-        res = answer(body.message, [t.model_dump() for t in body.history], st.faq, st.catalog, st.llm)
+        res = answer(body.message, [t.model_dump() for t in body.history], st.faq, st.catalog, st.guard.for_feature("chat"))
         LLM_CALLS.labels(svc, st.llm.name, "chat", "ok" if res["provider"] == st.llm.name else "fallback").inc()
         return res
 
     @app.post("/generate/description")
     def describe(body: DescribeIn):
         st = state()
-        res = generate(body.title, body.attributes, body.category, body.brand, body.keywords, st.llm)
+        res = generate(body.title, body.attributes, body.category, body.brand, body.keywords, st.guard.for_feature("description"))
         LLM_CALLS.labels(svc, st.llm.name, "description", "ok" if res["provider"] == st.llm.name else "fallback").inc()
         return res
 
     @app.post("/moderate")
     def moderate_ep(body: ModerateIn):
-        return moderate(body.text, state().llm)
+        return moderate(body.text, state().guard.for_feature("moderation"))
+
+    @app.get("/llm/budget")
+    def llm_budget():
+        """Chi phí LLM hôm nay (giờ VN) theo tính năng, ngân sách còn lại, có đang hạ cấp không (và vì sao)."""
+        st = state()
+        return {**st.guard.state(), "usage": st.store.llm_usage(st.guard.day())}
 
     @app.post("/internal/rebuild")
     def rebuild_ep(request: Request):

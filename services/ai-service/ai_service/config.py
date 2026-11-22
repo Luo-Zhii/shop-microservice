@@ -27,5 +27,9 @@ class Settings:
     )
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "none").lower())
     embeddings_enabled: bool = field(default_factory=lambda: _bool("EMBEDDINGS_ENABLED", False))
+    # FinOps cho GenAI: bảng giá (USD / 1 triệu token) và ngân sách ngày (0 = không giới hạn) — llm/budget.py
+    llm_price_in: float = field(default_factory=lambda: float(os.getenv("LLM_PRICE_INPUT_PER_MTOK", "3")))
+    llm_price_out: float = field(default_factory=lambda: float(os.getenv("LLM_PRICE_OUTPUT_PER_MTOK", "15")))
+    llm_daily_budget: float = field(default_factory=lambda: float(os.getenv("LLM_DAILY_BUDGET_USD", "0")))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "info"))
     otel_endpoint: str | None = field(default_factory=lambda: os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or None)

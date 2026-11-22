@@ -33,6 +33,8 @@ class LLMError(RuntimeError):
 class LLMProvider:
     name = "base"
     available = True
+    # token của lần chat gần nhất {"input": n, "output": m} — BudgetGuard đọc để tính chi phí (FinOps cho GenAI)
+    last_usage: dict | None = None
 
     def chat(self, messages: list[ChatMessage], system: str | None = None, max_tokens: int = 1024) -> str:
         raise NotImplementedError
@@ -82,6 +84,7 @@ class OllamaProvider(_HttpProvider):
             "/api/chat",
             {"model": self.model, "messages": msgs, "stream": False, "options": {"num_predict": max_tokens}},
         )
+        self.last_usage = {"input": int(data.get("prompt_eval_count") or 0), "output": int(data.get("eval_count") or 0)}
         try:
             return data["message"]["content"].strip()
         except (KeyError, TypeError) as e:
@@ -122,6 +125,9 @@ class AnthropicProvider(_HttpProvider):
             payload["fallbacks"] = "default"
             headers["anthropic-beta"] = "server-side-fallback-2026-07-01"
         data = self._post("/v1/messages", payload, headers=headers)
+        u = data.get("usage") or {}
+        self.last_usage = {"input": int(u.get("input_tokens") or 0) + int(u.get("cache_read_input_tokens") or 0)
+                           + int(u.get("cache_creation_input_tokens") or 0), "output": int(u.get("output_tokens") or 0)}
         if data.get("stop_reason") == "refusal":
             raise LLMError("anthropic: mô hình từ chối trả lời (stop_reason=refusal)")
         text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
@@ -170,6 +176,8 @@ class BedrockProvider(_HttpProvider):
         if system:
             payload["system"] = [{"text": system}]
         data = self._signed_post(f"/model/{quote(self.model_id, safe='')}/converse", payload)
+        u = data.get("usage") or {}
+        self.last_usage = {"input": int(u.get("inputTokens") or 0), "output": int(u.get("outputTokens") or 0)}
         try:
             blocks = data["output"]["message"]["content"]
         except (KeyError, TypeError) as e:

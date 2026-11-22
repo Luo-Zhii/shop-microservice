@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Ban, ClipboardList, Coins, DollarSign, Gauge, PackageCheck, ShieldCheck, Siren } from 'lucide-react';
+import { ArrowRight, Ban, Bot, ClipboardList, Coins, DollarSign, Gauge, PackageCheck, Route, ShieldCheck, Siren } from 'lucide-react';
 import { BarChart } from '@/components/bar-chart';
 import { StatCard } from '@/components/dash-shell';
 import { Badge, Card, LinkButton, PageTitle, QueryView, SectionTitle, Skeleton } from '@/components/ui';
@@ -22,7 +22,7 @@ export default function AdminDashboard() {
           const gmv = Number(pick(s.raw, 'gmv') ?? s.revenue);
           return (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
                 <StatCard label="GMV" icon={DollarSign} value={
                   // thẻ 2 cột trên điện thoại không đủ chỗ cho số tiền 12 chữ số → rút gọn (tỷ/tr), đủ số từ md; title giữ số đầy đủ
                   <span title={formatVND(gmv)}><span className="md:hidden">{formatCompact(gmv)} ₫</span><span className="hidden md:inline">{formatVND(gmv)}</span></span>
@@ -52,7 +52,7 @@ export default function AdminDashboard() {
   );
 }
 
-interface PlatformSummary { incidents_open: number; cost_per_order_usd: number | null; lcp_p75_s: number | null; error_budget: Record<string, number>; prometheus: boolean }
+interface PlatformSummary { incidents_open: number; cost_per_order_usd: number | null; lcp_p75_s: number | null; llm_cost_24h_usd: number | null; llm_budget_remaining: number | null; llm_degraded: number | null; synthetic_ok: number | null; error_budget: Record<string, number>; prometheus: boolean }
 
 /** Tín hiệu vận hành (AIOps/SRE/FinOps) cạnh số liệu kinh doanh — lỗi/không có quyền thì ẩn, không làm hỏng trang. */
 function PlatformHealth() {
@@ -76,6 +76,11 @@ function PlatformHealth() {
         <StatCard label="LCP p75" value={d.lcp_p75_s == null ? '—' : d.lcp_p75_s.toFixed(2) + 's'} icon={Gauge} tone={lcpTone} hint="tốt ≤ 2.5s" />
         <StatCard label="Chi phí/đơn" value={d.cost_per_order_usd == null ? '—' : '$' + d.cost_per_order_usd.toFixed(4)} icon={Coins} tone="info" />
         <StatCard label="Error budget" value={lowest ? Math.round(lowest[1] * 100) + '%' : '—'} icon={ShieldCheck} tone={budgetTone} hint={lowest?.[0]} />
+        <StatCard label="Chi phí LLM 24h" value={d.llm_cost_24h_usd == null ? '—' : '$' + d.llm_cost_24h_usd.toFixed(2)} icon={Bot}
+          tone={d.llm_degraded ? 'danger' : (d.llm_budget_remaining ?? 1) < 0.2 ? 'warning' : 'info'}
+          hint={d.llm_degraded ? 'đang hạ cấp về FAQ' : d.llm_budget_remaining == null ? undefined : `ngân sách còn ${Math.round(d.llm_budget_remaining * 100)}%`} />
+        <StatCard label="Hành trình mua" value={d.synthetic_ok == null ? '—' : d.synthetic_ok ? 'Trót lọt' : 'Hỏng'} icon={Route}
+          tone={d.synthetic_ok == null ? 'info' : d.synthetic_ok ? 'success' : 'danger'} hint="robot tổng hợp mỗi phút" />
       </div>
       {!d.prometheus && <p className="mt-2 text-xs text-muted">Chưa nối Prometheus — chỉ hiện số sự cố.</p>}
     </section>

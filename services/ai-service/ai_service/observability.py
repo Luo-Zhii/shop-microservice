@@ -19,6 +19,11 @@ KAFKA_PRODUCED = Counter("kafka_messages_produced_total", "Số message Kafka đ
 MODEL_REBUILD = Histogram("ai_model_rebuild_seconds", "Thời gian dựng lại mô hình gợi ý/tìm kiếm", ["service"])
 MODEL_ITEMS = Gauge("ai_model_products", "Số sản phẩm trong chỉ mục", ["service"])
 LLM_CALLS = Counter("ai_llm_requests_total", "Số lần gọi LLM", ["service", "provider", "feature", "result"])
+# FinOps cho GenAI (llm/budget.py)
+LLM_TOKENS = Counter("ai_llm_tokens_total", "Token LLM đã dùng", ["service", "provider", "feature", "kind"])
+LLM_COST = Counter("ai_llm_cost_usd_total", "Chi phí LLM ước tính theo bảng giá (USD)", ["service", "provider", "feature"])
+LLM_BUDGET_REMAINING = Gauge("ai_llm_budget_remaining_ratio", "Tỉ lệ ngân sách LLM ngày còn lại", ["service"])
+LLM_DEGRADED = Gauge("ai_llm_degraded", "1 = LLM đang hạ cấp vì lý do này", ["service", "reason"])
 
 SKIP_ROUTES = {"/metrics", "/healthz", "/readyz"}
 

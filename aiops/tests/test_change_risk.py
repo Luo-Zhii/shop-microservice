@@ -145,7 +145,11 @@ def test_platform_summary(tmp_path):
     def prom(req):
         q = req.url.params.get("query", "")
         val = {"shopnow:cost_per_order_usd": [{"metric": {}, "value": [0, "0.0123"]}],
-               "slo:period_error_budget_remaining:ratio": [{"metric": {"sloth_slo": "web-lcp-good"}, "value": [0, "0.42"]}]}
+               "slo:period_error_budget_remaining:ratio": [{"metric": {"sloth_slo": "web-lcp-good"}, "value": [0, "0.42"]}],
+               "sum(increase(ai_llm_cost_usd_total[24h]))": [{"metric": {}, "value": [0, "1.23456"]}],
+               "min(ai_llm_budget_remaining_ratio)": [{"metric": {}, "value": [0, "0.18"]}],
+               "max(ai_llm_degraded)": [{"metric": {}, "value": [0, "0"]}],
+               "min(synthetic_journey_success)": [{"metric": {}, "value": [0, "1"]}]}
         res = val.get(q) or ([{"metric": {}, "value": [0, "NaN"]}] if "web_vitals" in q else [])
         return httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": res}})
 
@@ -154,7 +158,8 @@ def test_platform_summary(tmp_path):
     deps = dict(loki=None, inspector=StaticInspector(), backend=RecordingBackend(), notifier=Notifier("", "", enabled=False), llm=NoneProvider())
     with TestClient(create_app(s, prom=PrometheusClient("http://p", transport=httpx.MockTransport(prom)), **deps)) as c:
         r = c.get("/platform/summary").json()
-        assert r == {"incidents_open": 0, "cost_per_order_usd": 0.0123, "lcp_p75_s": None,
+        assert r == {"incidents_open": 0, "cost_per_order_usd": 0.0123, "lcp_p75_s": None, "llm_cost_24h_usd": 1.2346,
+                     "llm_budget_remaining": 0.18, "llm_degraded": 0.0, "synthetic_ok": 1.0,
                      "error_budget": {"web-lcp-good": 0.42}, "prometheus": True}
     s.db_url, s.prometheus_url = f"sqlite:///{tmp_path / 'j.db'}", ""
     with TestClient(create_app(s, prom=None, **deps)) as c:
