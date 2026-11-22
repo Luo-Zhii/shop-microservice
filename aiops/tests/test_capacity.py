@@ -125,3 +125,26 @@ def test_flash_sale_uplift_learned_and_applied(tmp_path):
         r = c.get("/capacity/forecast?hours=2").json()
         assert r["upcoming_flash_sales"] == 0 and r["items"][0]["event_uplift"] is None
     os.environ.pop("INTERNAL_TOKEN")
+
+
+def test_weekly_seasonality_fixes_weekend_level():
+    """≥ 14 ngày: khử mùa vụ tuần → sáng thứ Bảy (tải ×1.6) dự báo đúng mức; chỉ mùa vụ ngày thì đoán thấp."""
+    from aiops.capacity import VN_OFFSET, weekday_factors
+
+    rng = np.random.default_rng(4)
+    start = 1_799_884_800 - VN_OFFSET
+    start -= (((start + VN_OFFSET) // 86400 + 3) % 7) * 86400          # 00:00 giờ VN thứ Hai
+    n = 21 * DAY + 5 * DAY + 8                                          # 3 tuần + T2..T6 + 2 giờ thứ Bảy
+    t = np.arange(n + 24)
+    dow = ((start + VN_OFFSET + t * STEP) // 86400 + 3) % 7
+    x = (100 + 80 * np.clip(np.sin(2 * np.pi * (t % DAY) / DAY - 1.2), 0, None)) * np.where(dow >= 5, 1.6, 1.0)
+    x = x + rng.normal(0, 4, len(t))
+    hist, truth = x[:n], x[n:n + 24]
+    assert dow[n] == 5
+    weekly, daily = forecast(hist, STEP, 6 * 3600, start_ts=start), forecast(hist, STEP, 6 * 3600)
+    mae = lambda f: float(np.mean(np.abs(np.array(f["forecast"]) - truth)))  # noqa: E731
+    assert weekly["model"] == "holt-winters+weekly" and daily["model"] == "holt-winters"
+    assert mae(weekly) < 0.3 * mae(daily)
+    f = weekly["weekday_factors"]
+    assert abs(f[5] / f[0] - 1.6) < 0.1                                 # học đúng tỉ lệ cuối tuần
+    assert weekday_factors(hist[: 10 * DAY], start, STEP) is None       # < 14 ngày → không ước lượng

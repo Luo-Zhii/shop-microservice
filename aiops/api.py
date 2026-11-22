@@ -381,7 +381,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         for svc, arr in sorted(series.items()):
             if np.count_nonzero(~np.isnan(arr)) < 24:
                 continue
-            fc = forecast(arr, step, horizon_s)
+            fc = forecast(arr, step, horizon_s, start_ts=start)
             uplift = None
             if svc in event_services and upcoming:
                 uplift = event_uplift(arr, start, step, past) or float(cap.get("default_event_uplift", 2.0))

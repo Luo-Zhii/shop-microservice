@@ -141,7 +141,7 @@ error_budget:
 # Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
 capacity:
   step_seconds: 900
-  lookback_days: 8
+  lookback_days: 15             # ≥ 14 ngày → khử mùa vụ tuần (cuối tuần) trước Holt-Winters ngày
   headroom: 0.3
   default_rps_per_pod: 50
   # flash sale đã lên lịch (promotion) nhân hệ số tăng tải vào dự báo của các service trên đường mua hàng;

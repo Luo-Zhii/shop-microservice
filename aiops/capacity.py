@@ -54,10 +54,38 @@ def holt_winters(x: np.ndarray, season: int | None, alpha: float, beta: float, g
     return np.maximum(fc, 0.0), sse
 
 
-def forecast(series: np.ndarray, step_s: int, horizon_s: int = 3600, season_s: int = 86400) -> dict:
+VN_OFFSET = 7 * 3600
+
+
+def _dow(start_ts: float, n: int, step_s: int) -> np.ndarray:
+    """Thứ trong tuần theo giờ VN cho n điểm từ start_ts: 0 = thứ Hai (1/1/1970 là thứ Năm → +3)."""
+    return ((int(start_ts) + VN_OFFSET + np.arange(n, dtype=np.int64) * step_s) // 86400 + 3) % 7
+
+
+def weekday_factors(x: np.ndarray, start_ts: float, step_s: int) -> np.ndarray | None:
+    """Hệ số theo thứ trong tuần (giờ VN) = trung bình thứ đó / trung bình chung; cần ≥ 14 ngày (2 lần mỗi thứ)."""
+    x = np.asarray(x, dtype=float)
+    real = ~np.isnan(x)                      # chỉ điểm THẬT — phần lấp (ffill) của lưới truy vấn sẽ làm lệch hệ số
+    if np.count_nonzero(real) * step_s < 14 * 86400:
+        return None
+    dow = _dow(start_ts, len(x), step_s)
+    overall = float(np.mean(x[real]))
+    if overall <= 0:
+        return None
+    f = np.array([float(np.mean(x[real & (dow == d)])) / overall if np.any(real & (dow == d)) else 1.0 for d in range(7)])
+    return np.clip(f, 0.2, 5.0)
+
+
+def forecast(series: np.ndarray, step_s: int, horizon_s: int = 3600, season_s: int = 86400,
+             start_ts: float | None = None) -> dict:
+    """`start_ts` = thời điểm của điểm đầu chuỗi; có ≥ 14 ngày thì khử mùa vụ tuần trước khi chạy Holt-Winters ngày."""
+    wf = weekday_factors(series, start_ts, step_s) if start_ts is not None else None
     x = _ffill(series)
     season = season_s // step_s
     horizon = max(1, horizon_s // step_s)
+    if wf is not None:
+        dow = _dow(start_ts, len(x) + horizon, step_s)
+        x = x / wf[dow[: len(x)]]
     use_season = len(x) >= 2 * season
     best = None
     for a, b, g in itertools.product(GRID, GRID, GRID if use_season else (0.0,)):
@@ -66,9 +94,16 @@ def forecast(series: np.ndarray, step_s: int, horizon_s: int = 3600, season_s: i
             best = (fc, sse, (a, b, g))
     fc, sse, params = best
     rmse = math.sqrt(sse / max(1, len(x) - 1))
-    return {"model": "holt-winters" if use_season else "holt", "params": dict(zip(("alpha", "beta", "gamma"), params)),
-            "current": round(float(x[-1]), 3), "peak": round(float(fc.max()), 3), "forecast": [round(float(v), 3) for v in fc],
-            "rmse": round(rmse, 3)}
+    current = float(x[-1])
+    if wf is not None:
+        fut = wf[dow[len(x):]]
+        fc = fc * fut
+        current = current * wf[dow[len(x) - 1]]
+        rmse = rmse * float(np.max(fut))
+    return {"model": ("holt-winters" if use_season else "holt") + ("+weekly" if wf is not None else ""),
+            "params": dict(zip(("alpha", "beta", "gamma"), params)),
+            "current": round(current, 3), "peak": round(float(fc.max()), 3), "forecast": [round(float(v), 3) for v in fc],
+            "rmse": round(rmse, 3), "weekday_factors": None if wf is None else [round(float(v), 3) for v in wf]}
 
 
 def recommend(peak: float, rmse: float, rps_per_pod: float, min_r: int, max_r: int, headroom: float = 0.3) -> int:
