@@ -152,6 +152,32 @@ function PublicComms({ incident }: { incident: Incident }) {
   );
 }
 
+interface RunbookHit { runbook: string; title: string; section: string; file: string; score: number; text: string; fix: string }
+
+/** Runbook-as-code gợi ý cho sự cố (khớp alert/service + TF-IDF) — người trực thấy ngay bước khắc phục đã được review. */
+function SuggestedRunbooks({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ['aiops-runbooks', id], retry: false, queryFn: () => api.get<{ items: RunbookHit[] }>(`/aiops/incidents/${id}/runbooks`) });
+  const items = (q.data?.items ?? []).filter((r) => r.score >= 0.3);
+  if (!items.length) return null;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Runbook gợi ý</SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {items.map((r) => (
+          <li key={r.runbook + r.section} className="rounded-xl border border-border p-3 text-sm">
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="min-w-0 flex-1 break-words font-medium">{r.runbook} · {r.title}</span>
+              <Badge tone={r.score >= 0.5 ? 'success' : 'neutral'}>khớp {Math.min(100, Math.round(r.score * 100))}%</Badge>
+            </div>
+            {r.fix && <p className="mt-1 break-words"><b>Khắc phục:</b> {r.fix}</p>}
+            <p className="mt-1 break-all text-xs text-muted">{r.file} · mục “{r.section}”</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 interface SimilarItem { id: string; title: string | null; service: string; score: number; root_cause: string | null; actions: { type: string; status: string }[]; mttr_s: number | null }
 
 /** "Lần trước bị thế này đã làm gì?" — sự cố đã đóng có dấu vân tay giống (service, nguyên nhân gốc, đặc trưng, alert). */
@@ -674,6 +700,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
       {incident.summary && <Card className="mb-4 p-3 text-sm whitespace-pre-line">{incident.summary}</Card>}
       <BusinessImpact id={incident.id} />
       <PublicComms incident={incident} />
+      <SuggestedRunbooks id={incident.id} />
       <SimilarIncidents id={incident.id} />
       <QueryView q={inv} isEmpty={(d) => !d.items.length}
         empty={<EmptyState icon={<Bot className="size-6" />} title="Chưa có bản điều tra" description="Bấm “Tác tử điều tra” để chạy RCA nhiều bước qua công cụ MCP." />}>

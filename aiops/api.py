@@ -447,6 +447,16 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         data = build_status(responder.store, responder.clock(), comps, failed)
         return JSONResponse(data, headers={"cache-control": "public, max-age=30"})
 
+    @app.get("/incidents/{incident_id}/runbooks")
+    def incident_runbooks(incident_id: str):
+        """Mục runbook phù hợp nhất cho sự cố (alert/service khớp chính xác + TF-IDF), kèm bước khắc phục."""
+        from .runbooks import for_incident
+
+        inc = responder.store.get_incident(incident_id)
+        if inc is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        return {"items": for_incident(inc)}
+
     @app.get("/incidents/{incident_id}/postmortem")
     def postmortem(incident_id: str, format: str = "json"):
         from .agent.postmortem import build as build_pm

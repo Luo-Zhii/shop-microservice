@@ -1,7 +1,7 @@
 {
   "scenarios_fault": 25,
   "seed": 42,
-  "elapsed_s": 107.3,
+  "elapsed_s": 81.7,
   "alert_correlation": {
     "scenarios": 25,
     "incidents_without": 62,
@@ -16,8 +16,8 @@
       "grounding_mean": 1.0,
       "hallucinated": 0,
       "hallucination_accepted": null,
-      "tool_calls_mean": 8,
-      "seconds_p50": 0.023,
+      "tool_calls_mean": 9,
+      "seconds_p50": 0.02,
       "by_fault": {
         "cpu": {
           "n": 6,
@@ -48,7 +48,7 @@
       "hallucinated": 11,
       "hallucination_accepted": 0,
       "tool_calls_mean": 2,
-      "seconds_p50": 0.021,
+      "seconds_p50": 0.018,
       "by_fault": {
         "cpu": {
           "n": 6,
@@ -79,7 +79,7 @@
       "hallucinated": 11,
       "hallucination_accepted": 1,
       "tool_calls_mean": 2,
-      "seconds_p50": 0.022,
+      "seconds_p50": 0.018,
       "by_fault": {
         "cpu": {
           "n": 6,

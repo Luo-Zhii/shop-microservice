@@ -279,10 +279,18 @@ class Investigator:
                "pod_restarted": bool(p.get("pod_restarted")), "symptoms": symptoms,
                "score": ((an.data or {}).get("services", {}).get(target) or {}).get("score", 0) if an.ok else 0}
         decision = choose_action(self.r.s.runbook, ctx)
+        alertnames = [a for a in (inc.data.get("alerts") or []) if a]
+        rb = call("Runbook nào áp dụng?", "search_runbooks",
+                  query=" ".join([target, *alertnames, *symptoms]), service=target)
+        rb_top = ((rb.data or {}).get("items") or [None])[0] if rb.ok else None
         cites = [e for e, cond in ((dep.id, changed), (pods.id, p.get("crashloop") or p.get("pod_restarted")),
                                    (an.id, symptoms), (rank.id, True)) if cond]
+        if rb_top and rb_top["score"] >= 0.5:
+            cites.append(rb.id)
         rem = {"action": decision["action"], "service": target, "rule": decision["rule"],
                "reason": f"{decision['reason'] or decision['rule']} ({', '.join(cites)})", "params": decision["params"]}
+        if rb_top and rb_top["score"] >= 0.5:
+            rem["runbook"] = {"id": rb_top["runbook"], "title": rb_top["title"], "file": rb_top["file"]}
         if decision["action"] == "scale_up" and not any(h["service"] == target for h in hyps):
             hyps.append({"service": target, "cause": f"quá tải: {', '.join(symptoms) or 'điểm bất thường cao'}",
                          "confidence": 0.5, "evidence": [an.id, rank.id]})

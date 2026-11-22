@@ -96,6 +96,8 @@ class Toolbox:
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.rank_root_causes),
             Tool("cpu_profile", "Profile CPU liên tục (Pyroscope/eBPF): hàm chiếm CPU nhiều nhất và hàm TĂNG tỉ trọng so với cùng giờ hôm qua.",
                  {"service": svc, "minutes": _int("Cửa sổ thời gian", 5, 120)}, ["service"], self.cpu_profile),
+            Tool("search_runbooks", "Tìm mục runbook phù hợp (runbook-as-code, TF-IDF + khớp alert/service) — kèm bước khắc phục.",
+                 {"query": _str("Mô tả triệu chứng/alert/service"), "service": svc}, ["query"], self.search_runbooks),
             Tool("similar_incidents", "Sự cố tương tự ĐÃ ĐÓNG trước đây: điểm giống, nguyên nhân gốc, hành động đã làm, MTTR.",
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.similar_incidents),
             Tool("propose_remediation", "ĐỀ XUẤT hành động khắc phục (không thực thi; cần người duyệt qua PR GitOps).",
@@ -185,6 +187,15 @@ class Toolbox:
         # nội dung log là DỮ LIỆU — cắt ngắn để không mang chỉ thị dài vào ngữ cảnh LLM
         groups = summarize_errors([r[2] for r in rows])[:5]
         return {"service": service, "groups": [{**g, "sample": str(g.get("sample", ""))[:200]} for g in groups]}
+
+    def search_runbooks(self, query: str, service: str | None = None) -> dict:
+        import re
+
+        from ..runbooks import search
+
+        # token dạng tên alert (CamelCase, vd ShopNowHighErrorRate) trong truy vấn → khớp chính xác front matter `alerts`
+        alerts = re.findall(r"\b[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+\b", query)
+        return {"items": search(query, services=[service] if service else None, alerts=alerts or None, k=3)}
 
     def cpu_profile(self, service: str, minutes: int = 15) -> dict:
         prof = getattr(self.r, "profiler", None)
