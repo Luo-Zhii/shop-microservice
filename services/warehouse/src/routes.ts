@@ -1,5 +1,6 @@
 import { notFound, requireUser, withTx, z, type Auth, type FastifyInstance, type Pool } from '@shopnow/platform';
 import type { createReconciler } from './reconcile';
+import { slaOf } from './sla';
 import { cycleCountPlan, replenishment } from './replenishment';
 import {
   allocatePick, approveCount, chargeStorage, confirmPick, countSheet, createReceipt, receive, startCount, stockLedgerReport, submitCount,
@@ -10,6 +11,8 @@ export interface RouteDeps {
   auth: Auth;
   countThreshold: number;
   storageRate: number;
+  /** giờ cắt đơn cho SLA xuất kho (mặc định 14h) */
+  cutoffHour?: number;
   /** đối soát tồn với inventory (reconcile.ts) — tuỳ chọn để test cũ không đổi */
   reconciler?: ReturnType<typeof createReconciler>;
 }
@@ -70,7 +73,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     const { rows } = await pool.query(
       `SELECT p.*, (SELECT json_agg(l ORDER BY l.bin) FROM pick_lines l WHERE l.pick_id = p.id) AS lines FROM picks p
         WHERE status = $1 ORDER BY created_at LIMIT 200`, [st]);
-    return { items: rows };
+    // hạn xuất theo giờ cắt đơn — chỉ phiếu còn phải xử lý mới có đồng hồ SLA
+    const now = new Date();
+    return { items: rows.map((r) => (['OPEN', 'SHORT'].includes(r.status) ? { ...r, sla: slaOf(new Date(r.created_at), now, deps.cutoffHour ?? 14) } : r)) };
   });
   /** Tạo phiếu lấy hàng thủ công (vd đơn đi từ kênh khác). Đơn ShopNow tự tạo qua sự kiện order.confirmed. */
   app.post('/picks', staff, async (req, reply) => {

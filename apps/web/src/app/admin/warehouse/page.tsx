@@ -48,7 +48,16 @@ function Replenishment() {
 }
 interface ReceiptLine { sku_id: string; qty_expected: number; qty_received: number | null; qty_damaged: number; unit_cost: number }
 interface Receipt { id: string; receipt_no: string; warehouse: string; shop_id: string; status: string; created_at: string; lines: ReceiptLine[] }
-interface Pick { id: string; order_id: string; status: string; short_reason: string | null; created_at: string; lines: { sku_id: string; bin: string; qty: number }[] | null }
+interface Pick { id: string; order_id: string; status: string; short_reason: string | null; created_at: string; lines: { sku_id: string; bin: string; qty: number }[] | null;
+  sla?: { dueAt: string; minutesLeft: number; state: 'ok' | 'due_soon' | 'overdue' } }
+/** Hạn xuất theo giờ cắt đơn: quá hạn đỏ, ≤ 2 giờ vàng, còn lại xanh. */
+function SlaBadge({ sla }: { sla?: Pick['sla'] }) {
+  if (!sla) return null;
+  const h = Math.floor(Math.abs(sla.minutesLeft) / 60), m = Math.abs(sla.minutesLeft) % 60;
+  const dur = h ? `${h}h${String(m).padStart(2, '0')}` : `${m} phút`;
+  const tone: Tone = sla.state === 'overdue' ? 'danger' : sla.state === 'due_soon' ? 'warning' : 'success';
+  return <span title={`Hạn xuất ${formatDate(sla.dueAt)}`}><Badge tone={tone}>{sla.state === 'overdue' ? `Quá hạn ${dur}` : `Còn ${dur}`}</Badge></span>;
+}
 interface Count { id: string; count_no: string; warehouse: string; bin_prefix: string; status: string; variance_value: number | null; created_by: string; approved_by: string | null }
 interface SheetLine { lot_id: string; bin: string; sku_id: string; counted_qty: number | null }
 
@@ -202,6 +211,7 @@ function Picks() {
             columns={[
               { key: 'o', header: 'Đơn', primary: true, cell: (p) => <span className="font-mono text-xs break-all">{p.order_id}</span> },
               { key: 'st', header: 'Trạng thái', badge: true, cell: (p) => <Badge tone={ST[p.status]}>{p.status}</Badge> },
+              { key: 'sla', header: 'Hạn xuất', cell: (p) => <SlaBadge sla={p.sla} /> },
               { key: 'l', header: 'Lấy ở', cell: (p) => p.short_reason ?? (
                 <ul className="text-xs">{(p.lines ?? []).map((l, i) => <li key={i} className="whitespace-nowrap"><b>{l.bin}</b> · {l.sku_id} × {l.qty}</li>)}</ul>
               ) },

@@ -6,6 +6,7 @@ import { cfg } from './config';
 import { registerConsumers } from './consumers';
 import { createReconciler, type InvStock } from './reconcile';
 import { registerRoutes } from './routes';
+import { refreshPickSla } from './sla';
 
 async function main() {
   const svc = createService(cfg.SERVICE_NAME, { corsOrigins: cfg.CORS_ORIGINS });
@@ -29,7 +30,8 @@ async function main() {
       return Array.isArray(body) ? body : body.items ?? [];
     },
   });
-  registerRoutes(app, { pool, auth, countThreshold: cfg.COUNT_APPROVAL_THRESHOLD, storageRate: cfg.STORAGE_FEE_PER_UNIT_DAY, reconciler });
+  registerRoutes(app, { pool, auth, countThreshold: cfg.COUNT_APPROVAL_THRESHOLD, storageRate: cfg.STORAGE_FEE_PER_UNIT_DAY, reconciler, cutoffHour: cfg.PICK_CUTOFF_HOUR });
+  const slaTimer = setInterval(() => { refreshPickSla(pool, new Date(), cfg.PICK_CUTOFF_HOUR).catch((err) => log.warn({ err }, 'tính SLA xuất kho lỗi')); }, 60_000);
   const reconTimer = cfg.RECONCILE_INTERVAL_SECONDS > 0
     ? setInterval(() => { reconciler.runOnce().then((r) => { if (!r.ok) log.warn({ persistent: r.persistent, error: r.error }, 'lệch tồn với inventory'); }); }, cfg.RECONCILE_INTERVAL_SECONDS * 1000)
     : null;
@@ -39,6 +41,7 @@ async function main() {
     if (!bus.isConnected) throw new Error('kafka chưa kết nối');
   });
   svc.onShutdown(async () => {
+    clearInterval(slaTimer);
     if (reconTimer) clearInterval(reconTimer);
     stopRelay();
     await bus.stop();
