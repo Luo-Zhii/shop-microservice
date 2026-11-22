@@ -28,6 +28,7 @@ def robust_z(series: np.ndarray, train: slice, recent: int = 3) -> float:
 def kpi_scores(raw: dict[str, np.ndarray], spec: dict[str, dict], train: slice) -> tuple[float, list[tuple[str, float]]]:
     """→ (điểm KPI tổng của service [0..1], danh sách (kpi, z theo chiều xấu) giảm dần)."""
     out: list[tuple[str, float]] = []
+    scores: list[float] = []
     for name, cfg in (spec or {}).items():
         series = raw.get(name)
         if series is None or np.count_nonzero(~np.isnan(np.asarray(series, dtype=float))) < 20:
@@ -37,8 +38,31 @@ def kpi_scores(raw: dict[str, np.ndarray], spec: dict[str, dict], train: slice) 
         level = float(np.nanmean(np.asarray(series, dtype=float)[-3:]))
         if cfg.get("min_level") is not None and cfg.get("direction", "up") == "up" and level < float(cfg["min_level"]):
             bad = min(bad, 0.0)  # tăng nhưng vẫn dưới ngưỡng tuyệt đối có ý nghĩa (vd LCP < 2.5s) → bỏ qua
+        c = cusum(series, train, cfg.get("direction", "up")) if bad > 0 else 0.0
         if bad > 0:
-            out.append((name, round(bad, 2)))
+            out.append((name, round(max(bad, c / 4.0), 2)))
+            scores.append(max(float(np.clip((bad - 3.0) / 4.0, 0.0, 1.0)), float(np.clip((c - CUSUM_H) / CUSUM_H, 0.0, 1.0))))
     out.sort(key=lambda kv: -kv[1])
-    top = out[0][1] if out else 0.0
-    return float(np.clip((top - 3.0) / 4.0, 0.0, 1.0)), out
+    return (max(scores) if scores else 0.0), out
+
+
+CUSUM_K, CUSUM_H, CUSUM_WINDOW = 0.5, 8.0, 10
+
+
+def cusum(series: np.ndarray, train: slice, direction: str = "up") -> float:
+    """CUSUM một phía theo chiều xấu trên `CUSUM_WINDOW` điểm gần nhất, chuẩn hoá bằng median/MAD của cửa sổ học.
+
+    S_t = max(0, S_{t-1} + d_t − k): lệch nhỏ (vd đơn −30…50%) nhưng kéo dài vẫn tích luỹ vượt ngưỡng h, trong khi nhiễu
+    (d ≈ 0, trừ k mỗi bước) bị kéo về 0. k = 0.5σ, h = 8σ — cấu hình kinh điển cho lệch ~1σ (Page, 1954)."""
+    x = np.asarray(series, dtype=float)
+    x = x[~np.isnan(x)]
+    base = x[train] if len(x) > (train.stop or 0) else x[: max(1, len(x) - CUSUM_WINDOW)]
+    if len(base) < 10:
+        return 0.0
+    med = float(np.median(base))
+    scale = max(float(np.median(np.abs(base - med))) * 1.4826, abs(med) * 0.05, 1e-9)
+    s = 0.0
+    for v in x[-CUSUM_WINDOW:]:
+        d = (v - med) / scale if direction == "up" else (med - v) / scale
+        s = max(0.0, s + d - CUSUM_K)
+    return s

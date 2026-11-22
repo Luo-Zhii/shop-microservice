@@ -111,3 +111,15 @@ def test_kpi_auth_failure_spike_flags_identity():
     noisy = calm.copy()
     noisy[-5:] = 0.3                                   # gấp 6 lần nền nhưng vẫn dưới ngưỡng tuyệt đối 0.5/s
     assert kpi_scores({"auth_fail": noisy}, spec, slice(0, 100))[0] == 0.0
+
+
+def test_cusum_accumulates_small_persistent_shift_not_noise():
+    from aiops.detection.kpi import CUSUM_H, cusum
+
+    rng = np.random.default_rng(11)
+    x = 5 + rng.normal(0, 0.4, 120)
+    assert cusum(x, slice(0, 110), "down") < CUSUM_H            # nhiễu thuần
+    y = x.copy()
+    y[-6:] *= 0.6                                                  # đơn −40% trong 3 phút
+    assert cusum(y, slice(0, 110), "down") > 2 * CUSUM_H
+    assert cusum(y, slice(0, 110), "up") < CUSUM_H                 # đúng chiều mới tích luỹ

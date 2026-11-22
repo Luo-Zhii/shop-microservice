@@ -101,5 +101,6 @@ def test_kpi_eval_infra_blind_to_silent_failures(tmp_path):
     assert r["recall_silent"]["infra"] == 0.0
     for k in ("checkout_bug", "lcp_regression", "credential_stuff"):
         assert r["recall_by_kind"]["infra+kpi"][k] == 1.0
+    assert r["recall_by_kind"]["infra+kpi"]["checkout_partial"] >= 0.75   # nhờ CUSUM (trước CUSUM ≈ 0.3)
     assert r["false_alarm_rate"]["infra+kpi"] == 0.0
     assert (tmp_path / "kpi_eval_summary.json").exists()

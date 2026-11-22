@@ -52,7 +52,7 @@
         "n": 20
       },
       "checkout_partial": {
-        "hit": 6,
+        "hit": 20,
         "fp": 0,
         "n": 20
       },
@@ -70,7 +70,7 @@
   },
   "recall_silent": {
     "infra": 0.0,
-    "infra+kpi": 0.825
+    "infra+kpi": 1.0
   },
   "recall_by_kind": {
     "infra": {
@@ -83,7 +83,7 @@
       "checkout_bug": 1.0,
       "lcp_regression": 1.0,
       "credential_stuff": 1.0,
-      "checkout_partial": 0.3
+      "checkout_partial": 1.0
     }
   },
   "false_alarm_rate": {
