@@ -206,3 +206,40 @@ def test_postmortem_from_incident_data(tmp_path):
         r = c.get(f"/incidents/{inc_id}/postmortem?format=md")
         assert r.headers["content-type"].startswith("text/markdown") and "attachment" in r.headers["content-disposition"]
         assert c.get("/incidents/khong-co/postmortem").status_code == 404
+
+
+def test_investigation_emits_genai_semconv_spans(tmp_path):
+    """Trace một lần điều tra: invoke_agent → chat (mỗi lượt LLM) + execute_tool (mỗi công cụ), thuộc tính gen_ai.*"""
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from aiops.agent.investigator import Investigator
+
+    exp = InMemorySpanExporter()
+    tp = TracerProvider()
+    tp.add_span_processor(SimpleSpanProcessor(exp))
+    tracer = tp.get_tracer("test")
+    llm = FakeLLM([
+        {"thought": "deploy", "tool": "recent_deployments", "args": {"minutes": 60}},
+        {"thought": "bịa", "tool": "khong_co", "args": {}},
+        {"final": {"hypotheses": [{"service": "catalog", "cause": "deploy", "confidence": 0.9, "evidence": ["ev-1"]}],
+                   "remediation": {"action": "notify", "service": "catalog", "reason": "ev-1"}}},
+    ])
+    with make_app(tmp_path) as c:
+        inc_id = incident(c)
+        inv = Investigator(c.app.state.responder, llm, tracer=tracer)
+        r = inv.run(inc_id)
+        # cùng instance chạy tiếp bằng planner (không LLM) → không mang token của lần trước
+        inv.llm = None
+        assert inv.run(inc_id)["cost"]["input_tokens"] == 0
+    spans = exp.get_finished_spans()
+    root = next(s for s in spans if s.name == "invoke_agent shopnow-investigator" and s.attributes["aiops.mode"] == "llm")
+    assert root.attributes["gen_ai.operation.name"] == "invoke_agent" and root.attributes["gen_ai.conversation.id"] == inc_id
+    assert root.attributes["gen_ai.usage.input_tokens"] == r["cost"]["input_tokens"] > 0
+    mine = [s for s in spans if s.parent is not None and s.parent.span_id == root.context.span_id]
+    chats = [s for s in mine if s.attributes.get("gen_ai.operation.name") == "chat"]
+    tools = [s for s in mine if s.attributes.get("gen_ai.operation.name") == "execute_tool"]
+    assert len(chats) == 3
+    assert [s.attributes["gen_ai.tool.name"] for s in tools] == ["recent_deployments", "khong_co"]
+    assert tools[0].attributes["gen_ai.tool.call.id"] == "ev-1" and tools[1].status.status_code.name == "ERROR"

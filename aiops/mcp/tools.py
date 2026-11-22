@@ -70,8 +70,11 @@ def _int(desc: str, lo: int, hi: int) -> dict:
 class Toolbox:
     """Bọc các thành phần của Responder thành công cụ có schema."""
 
-    def __init__(self, responder):
+    def __init__(self, responder, tracer=None):
+        from opentelemetry import trace
+
         self.r = responder
+        self.tracer = tracer or trace.get_tracer("aiops.toolbox")
         s = responder.s
         svc = _str("Tên service", list(s.services) or None)
         self.tools: dict[str, Tool] = {t.name: t for t in [
@@ -102,6 +105,21 @@ class Toolbox:
         return [t.schema() for t in self.tools.values()]
 
     def call(self, name: str, args: dict | None, evidence: EvidenceLog | None = None) -> Evidence:
+        """Gọi công cụ, mỗi lần là một span `execute_tool <tên>` theo OTel GenAI semantic conventions (Development)."""
+        with self.tracer.start_as_current_span(f"execute_tool {name}") as span:
+            span.set_attribute("gen_ai.operation.name", "execute_tool")
+            span.set_attribute("gen_ai.tool.name", name)
+            span.set_attribute("gen_ai.tool.type", "function")
+            ev = self._call(name, args, evidence)
+            span.set_attribute("gen_ai.tool.call.id", ev.id)
+            span.set_attribute("aiops.evidence.ok", ev.ok)
+            if not ev.ok:
+                from opentelemetry.trace import Status, StatusCode
+
+                span.set_status(Status(StatusCode.ERROR, str((ev.data or {}).get("error", ""))[:200]))
+            return ev
+
+    def _call(self, name: str, args: dict | None, evidence: EvidenceLog | None = None) -> Evidence:
         evidence = evidence if evidence is not None else EvidenceLog()
         args = dict(args or {})
         tool = self.tools.get(name)
