@@ -79,7 +79,7 @@ class RcaIn(BaseModel):
 
 
 def build(settings: Settings, *, store=None, prom=None, loki=None, alerts=None, inspector=None, backend=None,
-          notifier=None, llm=None, clock=time.time):
+          notifier=None, llm=None, clock=time.time, profiler=None):
     """Lắp các thành phần (tiêm phụ thuộc được để test)."""
     store = store or IncidentStore(settings.db_url)
     if prom is None and settings.prometheus_url:
@@ -99,6 +99,11 @@ def build(settings: Settings, *, store=None, prom=None, loki=None, alerts=None, 
     llm = llm if llm is not None else safe_build_provider(log)
     engine = DetectorEngine(settings, prom, loki, alerts, clock)
     responder = Responder(settings, store, executor, notifier, inspector, engine, prom, loki, llm, clock)
+    if profiler is None and settings.pyroscope_url:
+        from .collectors.pyroscope import PyroscopeClient
+
+        profiler = PyroscopeClient(settings.pyroscope_url)
+    responder.profiler = profiler          # continuous profiling (tuỳ chọn) — công cụ MCP cpu_profile
     return engine, responder
 
 

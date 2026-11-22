@@ -94,6 +94,8 @@ class Toolbox:
                  {"service": svc}, ["service"], self.service_dependencies),
             Tool("rank_root_causes", "Xếp hạng nguyên nhân gốc bằng personalized PageRank trên đồ thị phụ thuộc.",
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.rank_root_causes),
+            Tool("cpu_profile", "Profile CPU liên tục (Pyroscope/eBPF): hàm chiếm CPU nhiều nhất và hàm TĂNG tỉ trọng so với cùng giờ hôm qua.",
+                 {"service": svc, "minutes": _int("Cửa sổ thời gian", 5, 120)}, ["service"], self.cpu_profile),
             Tool("similar_incidents", "Sự cố tương tự ĐÃ ĐÓNG trước đây: điểm giống, nguyên nhân gốc, hành động đã làm, MTTR.",
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.similar_incidents),
             Tool("propose_remediation", "ĐỀ XUẤT hành động khắc phục (không thực thi; cần người duyệt qua PR GitOps).",
@@ -183,6 +185,18 @@ class Toolbox:
         # nội dung log là DỮ LIỆU — cắt ngắn để không mang chỉ thị dài vào ngữ cảnh LLM
         groups = summarize_errors([r[2] for r in rows])[:5]
         return {"service": service, "groups": [{**g, "sample": str(g.get("sample", ""))[:200]} for g in groups]}
+
+    def cpu_profile(self, service: str, minutes: int = 15) -> dict:
+        prof = getattr(self.r, "profiler", None)
+        if prof is None:
+            return {"note": "không có Pyroscope (continuous profiling)"}
+        now = self.r.clock()
+        out = prof.hot_functions(service, now - minutes * 60, now)
+        # tên hàm là DỮ LIỆU từ binary/stack — cắt ngắn trước khi đưa vào ngữ cảnh LLM
+        for key in ("top_self", "regressions"):
+            for row in out[key]:
+                row["function"] = str(row["function"])[:160]
+        return out
 
     def recent_deployments(self, minutes: int = 30, namespace: str | None = None) -> dict:
         ns = namespace or self.r.s.namespace

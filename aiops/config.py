@@ -26,6 +26,7 @@ class Settings:
     runbook: dict[str, Any]
     prometheus_url: str = field(default_factory=lambda: os.getenv("PROMETHEUS_URL", "http://localhost:9090"))
     loki_url: str | None = field(default_factory=lambda: os.getenv("LOKI_URL") or None)
+    pyroscope_url: str | None = field(default_factory=lambda: os.getenv("PYROSCOPE_URL") or None)
     alertmanager_url: str | None = field(default_factory=lambda: os.getenv("ALERTMANAGER_URL") or None)
     public_url: str = field(default_factory=lambda: os.getenv("AIOPS_PUBLIC_URL", "http://localhost:8120"))
     db_url: str = field(default_factory=lambda: os.getenv("AIOPS_DB_URL") or os.getenv("DATABASE_URL")

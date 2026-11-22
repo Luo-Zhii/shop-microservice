@@ -266,6 +266,15 @@ class Investigator:
         symptoms = sorted({f for f, z in feats if z >= 3})
         for a in (inc.data.get("alerts") or []):
             symptoms = sorted(set(symptoms) | {f for k, f in ALERT_SYMPTOMS.items() if k in (a or "").lower()})
+        if ("cpu" in symptoms or "p95" in symptoms) and getattr(self.r, "profiler", None) is not None:
+            # trụ cột thứ tư: profile liên tục chỉ ra HÀM nào ăn CPU tăng vọt (vd vòng lặp/regex mới sau đổi cấu hình)
+            prof = call(f"Hàm nào ngốn CPU ở {target}?", "cpu_profile", service=target, minutes=15)
+            regs = ((prof.data or {}).get("regressions") or []) if prof.ok else []
+            if regs:
+                r0 = regs[0]
+                hyps.append({"service": target, "cause": f"nóng CPU ở `{r0['function']}` "
+                             f"({(r0['baseline_share'] or 0):.0%} → {r0['share']:.0%} thời gian CPU so với cùng giờ hôm qua)",
+                             "confidence": 0.6, "evidence": [prof.id, an.id]})
         ctx = {"service": target, "recent_deploy": bool(changed), "crashloop": bool(p.get("crashloop")),
                "pod_restarted": bool(p.get("pod_restarted")), "symptoms": symptoms,
                "score": ((an.data or {}).get("services", {}).get(target) or {}).get("score", 0) if an.ok else 0}
