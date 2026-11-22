@@ -3,7 +3,7 @@ import { badRequest, conflict, createEvent, enqueue, newId, withTx, z, type Pool
 import { Topics, type Address, type InventoryReserve, type PaymentMethod } from '@shopnow/contracts';
 import type { OrderDeps, SkuInfo } from './clients';
 import type { SagaConfig } from './config';
-import { emitOrderEvent, ordersCreated } from './repo';
+import { emitOrderEvent, ordersCreated, ordersGmv } from './repo';
 import type { Log } from './repo';
 
 export const addressSchema = z.object({
@@ -228,6 +228,7 @@ export async function createCheckout(
       await enqueue(c, Topics.inventoryCommand, createEvent('inventory.reserve', 'order', checkoutId, reserve));
     });
     ordersCreated().inc(drafts.length);
+    ordersGmv().inc(drafts.reduce((a, d) => a + Number(d.total), 0));
     return { checkoutId, status: 'PENDING', orderIds: drafts.map((d) => d.orderId) };
   }
 }

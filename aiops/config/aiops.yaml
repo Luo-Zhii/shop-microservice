@@ -151,6 +151,10 @@ error_budget:
     ai-service-availability: [ai-service]
 
 # Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
+# Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
+business:
+  default_aov_vnd: 350000
+
 # Đóng băng thay đổi quanh flash sale: deploy chạm service trên đường mua hàng (mặc định = capacity.event_services)
 # trong [bắt đầu − before, kết thúc + after] → /change-risk ép mức high + duyệt tay; `emergency: true` để bỏ qua (có audit).
 change_freeze:

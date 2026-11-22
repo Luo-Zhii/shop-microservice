@@ -11,6 +11,8 @@ export interface Log {
 
 // ---------------- Metrics nghiệp vụ ----------------
 export const ordersCreated = () => counter('orders_created_total', 'Số order đã tạo');
+/** Tổng giá trị đơn tạo ra (VND) — chia cho orders_created_total = giá trị đơn TB, AIOps dùng để quy sự cố ra tiền */
+export const ordersGmv = () => counter('order_gmv_vnd_total', 'Tổng giá trị đơn đã tạo (VND)');
 export const ordersCancelled = () => counter('orders_cancelled_total', 'Số order bị huỷ', ['reason']);
 export const sagaDuration = () =>
   histogram('checkout_saga_duration_seconds', 'Thời gian saga checkout từ lúc tạo tới CONFIRMED/CANCELLED', ['result'], [

@@ -7,7 +7,7 @@ import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
 import { Badge, Button, Card, EmptyState, KV, PageTitle, QueryView, SectionTitle, Sheet, Tabs } from '@/components/ui';
 import { api } from '@/lib/api';
-import { formatDate, timeAgo, type Tone } from '@/lib/format';
+import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone } from '@/lib/format';
 import { toast } from '@/lib/toast';
 
 interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; root_causes?: { service: string; score: number }[] }
@@ -40,6 +40,30 @@ export default function AdminAiopsPage() {
       {view === 'changes' && <Changes />}
       {view === 'digest' && <Digest />}
     </div>
+  );
+}
+
+interface Impact { available: boolean; reason?: string; ongoing?: boolean; orders_actual: number; orders_expected: number; orders_deficit: number; orders_rebound: number; rebound_measured: boolean; orders_lost: number; aov_vnd: number; gmv_lost_vnd: number; drop_ratio: number | null; confidence: 'low' | 'medium'; note: string }
+
+/** Quy sự cố ra tiền: đơn hụt so với cùng khung giờ hôm qua/tuần trước, trừ khách mua bù, × giá trị đơn TB 7 ngày. */
+function BusinessImpact({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ['aiops-impact', id], retry: false, queryFn: () => api.get<Impact>(`/aiops/incidents/${id}/impact`) });
+  const d = q.data;
+  if (!d?.available) return null;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Ảnh hưởng kinh doanh (ước lượng)</SectionTitle>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="GMV ước mất" tone={d.gmv_lost_vnd > 0 ? 'danger' : 'success'}
+          value={<span title={formatVND(d.gmv_lost_vnd)}><span className="md:hidden">{formatCompact(d.gmv_lost_vnd)} ₫</span><span className="hidden md:inline">{formatVND(d.gmv_lost_vnd)}</span></span>} />
+        <Stat label="Đơn mất ròng" value={formatNumber(d.orders_lost)} />
+        <Stat label="Thực tế / kỳ vọng" value={`${formatNumber(d.orders_actual)} / ${formatNumber(d.orders_expected)}`} />
+        <Stat label="Khách mua bù" value={d.rebound_measured ? formatNumber(d.orders_rebound) : 'chưa đo'} />
+      </div>
+      <p className="mt-2 text-xs text-muted break-words">
+        {d.ongoing && 'Sự cố chưa đóng — số còn tăng. '}Độ tin cậy {d.confidence === 'low' ? 'thấp' : 'trung bình'}: {d.note}. Ước lượng để ưu tiên đầu tư độ tin cậy, không ghi sổ kế toán.
+      </p>
+    </section>
   );
 }
 
@@ -472,6 +496,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
       </>}>
       <p className="mb-3 break-words text-sm">{incident.title}</p>
       {incident.summary && <Card className="mb-4 p-3 text-sm whitespace-pre-line">{incident.summary}</Card>}
+      <BusinessImpact id={incident.id} />
       <SimilarIncidents id={incident.id} />
       <QueryView q={inv} isEmpty={(d) => !d.items.length}
         empty={<EmptyState icon={<Bot className="size-6" />} title="Chưa có bản điều tra" description="Bấm “Tác tử điều tra” để chạy RCA nhiều bước qua công cụ MCP." />}>

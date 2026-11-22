@@ -34,7 +34,7 @@ def _dur(a, b) -> str:
     return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
 
 
-def build(inc: dict, actions: list[dict], audit: list[dict], investigations: list[dict]) -> dict:
+def build(inc: dict, actions: list[dict], audit: list[dict], investigations: list[dict], impact: dict | None = None) -> dict:
     inv = investigations[0] if investigations else None
     start = inc.get("fault_start") or inc.get("detected_at")
     timings = {
@@ -56,6 +56,17 @@ def build(inc: dict, actions: list[dict], audit: list[dict], investigations: lis
                      f"bằng chứng {', '.join(root['evidence'])}; chế độ {inv['mode']}, grounding {inv['grounding']:.0%})")
     if inc.get("summary"):
         lines += ["", "> " + inc["summary"].replace("\n", "\n> ")]
+    if impact and impact.get("available"):
+        from .impact import vnd
+
+        lines += ["", "## Ảnh hưởng kinh doanh (ước lượng)", "",
+                  f"- Đơn thực tế **{impact['orders_actual']:g}** so với kỳ vọng **{impact['orders_expected']:g}** "
+                  f"(trung vị cùng khung giờ hôm qua/tuần trước: {impact['baselines']}) → hụt {impact['orders_deficit']:g} đơn "
+                  f"({(impact['drop_ratio'] or 0):.0%})",
+                  f"- Khách mua bù trong 1 giờ sau khôi phục: {impact['orders_rebound']:g} đơn"
+                  + ("" if impact["rebound_measured"] else " (chưa đủ 1 giờ để đo)"),
+                  f"- **Mất ròng ≈ {impact['orders_lost']:g} đơn × giá trị đơn TB {vnd(impact['aov_vnd'])} "
+                  f"= {vnd(impact['gmv_lost_vnd'])} GMV** — độ tin cậy `{impact['confidence']}`: {impact['note']}"]
     lines += ["", "## Chỉ số thời gian", "", "| Chỉ số | Giá trị |", "|---|---|"]
     lines += [f"| {k} | {v} |" for k, v in timings.items()]
     lines += ["", "## Dòng thời gian (giờ VN)", "", "| Lúc | Sự kiện | Bởi |", "|---|---|---|"]
@@ -93,5 +104,8 @@ def build(inc: dict, actions: list[dict], audit: list[dict], investigations: lis
         todo.append("Phải rollback → bổ sung kiểm thử/canary analysis cho thay đổi gây lỗi trước khi lên prod.")
     if inv and not inv["remediation"].get("allowed"):
         todo.append("Interlock chặn hành động tự động → quyết định có mở rộng runbook hay giữ thao tác thủ công.")
+    if impact and impact.get("available") and impact["gmv_lost_vnd"] > 0 and impact["confidence"] != "low":
+        todo.insert(0, f"Ước mất {impact['orders_lost']:g} đơn — đưa vào ưu tiên backlog độ tin cậy theo giá trị tiền, không chỉ theo cảm giác.")
     lines += [f"- [ ] {t}" for t in todo] or ["- [ ] (bổ sung)"]
-    return {"incident_id": inc["id"], "markdown": "\n".join(lines) + "\n", "action_items": todo, "timings": timings}
+    return {"incident_id": inc["id"], "markdown": "\n".join(lines) + "\n", "action_items": todo, "timings": timings,
+            "impact": impact}

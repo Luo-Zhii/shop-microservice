@@ -20,7 +20,8 @@ def _fmt_dur(s: float | None) -> str:
     return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
 
 
-def build(store, now: float, hours: int = 24) -> dict:
+def build(store, now: float, hours: int = 24, impact_fn=None) -> dict:
+    """`impact_fn(inc) → dict` (agent/impact.py) — có thì quy các sự cố đã đóng trong ca ra đơn/GMV ước mất."""
     since = now - hours * 3600
     new = store.list_incidents(since=since, limit=500)
     still_open = [i for i in store.list_incidents(limit=500) if i["status"] in ("open", "acknowledged", "mitigated")]
@@ -55,6 +56,18 @@ def build(store, now: float, hours: int = 24) -> dict:
                   "cost_usd": round(sum(float(c.get("usd", 0)) for c in costs), 4)},
         "attention": attention,
     }
+    if impact_fn is not None:
+        costed, skipped = [], 0
+        for i in resolved[:20]:          # giới hạn số truy vấn Prometheus mỗi bản tin
+            imp = impact_fn(i) or {}
+            if not imp.get("available") or imp.get("confidence") == "low":
+                skipped += 1
+                continue
+            costed.append({"id": i["id"], "service": i["service"], "orders_lost": imp["orders_lost"], "gmv_lost_vnd": imp["gmv_lost_vnd"]})
+        costed.sort(key=lambda x: -x["gmv_lost_vnd"])
+        data["business_impact"] = {"gmv_lost_vnd": sum(x["gmv_lost_vnd"] for x in costed),
+                                   "orders_lost": round(sum(x["orders_lost"] for x in costed), 1),
+                                   "incidents_costed": len(costed), "skipped_low_confidence": skipped, "top": costed[:3]}
     md = [f"🗂 *Bàn giao ca trực* — {hours}h qua (đến {data['generated_at']})", "",
           f"• Sự cố mới {len(new)} · đang mở {len(still_open)} · đã đóng {len(resolved)} · MTTR trung vị "
           f"{_fmt_dur(data['incidents']['mttr_median_s'])}",
@@ -66,6 +79,14 @@ def build(store, now: float, hours: int = 24) -> dict:
     if invs:
         md.append(f"• Tác tử: {len(invs)} lần điều tra, grounding TB {data['agent']['grounding_mean']:.0%}, "
                   f"chi phí ${data['agent']['cost_usd']}")
+    bi = data.get("business_impact")
+    if bi and bi["incidents_costed"]:
+        from .impact import vnd
+
+        top = bi["top"][0]
+        md.append(f"• Ước mất: {bi['orders_lost']:g} đơn ≈ {vnd(bi['gmv_lost_vnd'])} GMV "
+                  f"(đắt nhất: {top['service']} {vnd(top['gmv_lost_vnd'])})"
+                  + (f"; {bi['skipped_low_confidence']} sự cố không ước lượng tin cậy được" if bi["skipped_low_confidence"] else ""))
     md += ["", "*Cần chú ý:*"] + ([f"– {a}" for a in attention] or ["– không có"])
     data["markdown"] = "\n".join(md)
     return data

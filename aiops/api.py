@@ -10,6 +10,7 @@ POST /rca {scores?: {svc: điểm}}       chạy RCA theo yêu cầu
 POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LLM ReAct | planner), grounding + interlock
 GET  /incidents/{id}/similar            sự cố tương tự đã đóng (dấu vân tay Jaccard có trọng số) + cách đã xử lý
 GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ dữ liệu sự cố
+GET  /incidents/{id}/impact            ảnh hưởng kinh doanh ước lượng (đơn hụt, mua bù, GMV mất)
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất (trọng số đã học nếu có)
@@ -290,6 +291,26 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         except KeyError:
             return err(404, "NOT_FOUND", "không có sự cố")
 
+    def incident_impact(inc: dict) -> dict | None:
+        from .agent.impact import estimate
+
+        if responder.prom is None:
+            return None
+        start = inc.get("fault_start") or inc.get("detected_at")
+        end = inc.get("resolved_at") or responder.clock()
+        return estimate(responder.prom, float(start), float(end), responder.clock(),
+                        float((settings.raw.get("business") or {}).get("default_aov_vnd", 0)))
+
+    @app.get("/incidents/{incident_id}/impact")
+    def impact(incident_id: str):
+        """Ảnh hưởng kinh doanh ước lượng: đơn hụt so với hôm qua/tuần trước, trừ khách mua bù, quy ra GMV."""
+        inc = responder.store.get_incident(incident_id)
+        if inc is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        return {"incident_id": incident_id, "ongoing": not inc.get("resolved_at"), **incident_impact(inc)}
+
     @app.get("/incidents/{incident_id}/postmortem")
     def postmortem(incident_id: str, format: str = "json"):
         from .agent.postmortem import build as build_pm
@@ -298,7 +319,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         if inc is None:
             return err(404, "NOT_FOUND", "không có sự cố")
         pm = build_pm(inc, responder.store.actions_for(incident_id), responder.store.audit_for(incident_id),
-                      responder.store.investigations_for(incident_id))
+                      responder.store.investigations_for(incident_id), impact=incident_impact(inc))
         if format == "md":
             return PlainTextResponse(pm["markdown"], media_type="text/markdown; charset=utf-8",
                                      headers={"content-disposition": f'attachment; filename="postmortem-{incident_id}.md"'})
@@ -689,7 +710,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     def oncall_digest(hours: int = Query(24, ge=1, le=168)):
         from .agent.digest import build as build_digest
 
-        return build_digest(responder.store, responder.clock(), hours)
+        return build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact)
 
     @app.post("/reports/oncall-digest/send")
     def oncall_digest_send(request: Request, hours: int = Query(24, ge=1, le=168)):
@@ -698,7 +719,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
         from .agent.digest import build as build_digest
 
-        d = build_digest(responder.store, responder.clock(), hours)
+        d = build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact)
         return {"sent": responder.notifier.notify("Bàn giao ca trực", d["markdown"]), **{k: d[k] for k in ("incidents", "attention")}}
 
     # ---------------------------------------------------------------- MCP (Streamable HTTP, JSON)
