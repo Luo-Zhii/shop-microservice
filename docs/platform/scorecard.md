@@ -4,7 +4,7 @@ Luật: **tests** (bronze) Có test tự động; **deploy_config** (bronze) Có
 
 | Service | Mức | Điểm | tests | deploy_config | ci_build | owner | network_policy | autoscaling | aiops_monitored | slo | canary | chaos | kpi |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| accounting | 🥈 Silver | 82% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
+| accounting | 🥈 Silver | 91% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | ai-service | 🥈 Silver | 73% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · |
 | api-gateway | 🥈 Silver | 82% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | cart | 🥈 Silver | 73% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · |
@@ -21,6 +21,6 @@ Luật: **tests** (bronze) Có test tự động; **deploy_config** (bronze) Có
 | shipping | 🥈 Silver | 73% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · |
 | synthetic | 🥉 Bronze | 46% | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | · | · | · |
 | user-profile | 🥈 Silver | 73% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · |
-| warehouse | 🥈 Silver | 91% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| warehouse | 🥇 Gold | 100% | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-Tỉ lệ service đạt từng luật: tests 100%, deploy_config 100%, ci_build 100%, owner 100%, network_policy 94%, autoscaling 94%, aiops_monitored 94%, slo 94%, canary 22%, chaos 33%, kpi 22%.
+Tỉ lệ service đạt từng luật: tests 100%, deploy_config 100%, ci_build 100%, owner 100%, network_policy 94%, autoscaling 94%, aiops_monitored 94%, slo 94%, canary 33%, chaos 33%, kpi 22%.
