@@ -1,4 +1,5 @@
 import { notFound, requireUser, withTx, z, type Auth, type FastifyInstance, type Pool } from '@shopnow/platform';
+import type { createReconciler } from './reconcile';
 import { cycleCountPlan, replenishment } from './replenishment';
 import {
   allocatePick, approveCount, chargeStorage, confirmPick, countSheet, createReceipt, receive, startCount, stockLedgerReport, submitCount,
@@ -9,6 +10,8 @@ export interface RouteDeps {
   auth: Auth;
   countThreshold: number;
   storageRate: number;
+  /** đối soát tồn với inventory (reconcile.ts) — tuỳ chọn để test cũ không đổi */
+  reconciler?: ReturnType<typeof createReconciler>;
 }
 
 const id = z.string().min(1).max(64);
@@ -21,6 +24,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   const actor = (req: Parameters<typeof requireUser>[0]) => requireUser(req).email || requireUser(req).id;
 
   app.get('/warehouses', staff, async () => ({ items: (await pool.query('SELECT * FROM warehouses ORDER BY code')).rows }));
+
+  // ---- đối soát tồn với inventory (data consistency SLO) ----
+  const admin = { preHandler: auth.requireRole('admin') };
+  app.get('/reports/stock-drift', staff, async (req) => {
+    if (!deps.reconciler) return { enabled: false };
+    const fresh = (req.query as { refresh?: string }).refresh === 'true';
+    return { enabled: true, ...((fresh ? await deps.reconciler.runOnce() : deps.reconciler.last()) ?? await deps.reconciler.runOnce()) };
+  });
+  app.post('/reports/stock-drift/resync', admin, async (req) => {
+    if (!deps.reconciler) return { resent: 0 };
+    return deps.reconciler.resync(actor(req));
+  });
 
   // ---- seller: báo trước lô hàng gửi kho (ASN) + xem tồn của mình ----
   app.post('/seller/receipts', seller, async (req, reply) => {

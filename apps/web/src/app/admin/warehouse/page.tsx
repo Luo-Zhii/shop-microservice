@@ -7,9 +7,10 @@ import { DataTable } from '@/components/data-table';
 import { Badge, Button, EmptyState, Field, Input, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate, formatNumber, formatVND, type Tone } from '@/lib/format';
+import { useAuth } from '@/lib/auth';
 import { toast } from '@/lib/toast';
 
-type Tab = 'receipts' | 'picks' | 'counts' | 'ledger' | 'replenish';
+type Tab = 'receipts' | 'picks' | 'counts' | 'ledger' | 'replenish' | 'drift';
 interface Replenish { shopId: string; skuId: string; abc: 'A' | 'B' | 'C'; forecastPerDay: number; safetyStock: number; reorderPoint: number; available: number; daysOfCover: number | null; suggestQty: number; status: 'critical' | 'reorder' | 'ok' }
 const RS: Record<Replenish['status'], { label: string; tone: Tone }> = { critical: { label: 'Dưới tồn an toàn', tone: 'danger' }, reorder: { label: 'Cần đặt hàng', tone: 'warning' }, ok: { label: 'Đủ hàng', tone: 'success' } };
 
@@ -61,14 +62,67 @@ export default function AdminWarehousePage() {
       <PageTitle>Kho sàn</PageTitle>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
         { value: 'receipts', label: 'Nhập kho' }, { value: 'picks', label: 'Lấy hàng' }, { value: 'counts', label: 'Kiểm kê' }, { value: 'ledger', label: 'Nhập – xuất – tồn' },
-        { value: 'replenish', label: 'Đề xuất nhập' },
+        { value: 'replenish', label: 'Đề xuất nhập' }, { value: 'drift', label: 'Đối soát tồn' },
       ]} />
+      {tab === 'drift' && <StockDrift />}
       {tab === 'replenish' && <Replenishment />}
       {tab === 'receipts' && <Receipts />}
       {tab === 'picks' && <Picks />}
       {tab === 'counts' && <Counts />}
       {tab === 'ledger' && <StockLedger />}
     </div>
+  );
+}
+
+interface Drift { shopId: string; skuId: string; kind: 'over' | 'under' | 'missing'; warehouseAvailable: number; inventoryOnHand: number | null; expected: number; delta: number; persistent: boolean }
+interface DriftReport { enabled: boolean; at?: string; skus?: number; drifts?: Drift[]; persistent?: number; units?: number; ok?: boolean; error?: string }
+const DRIFT: Record<Drift['kind'], { label: string; tone: Tone }> = {
+  over: { label: 'Bán vượt tồn', tone: 'danger' }, under: { label: 'Bán hụt', tone: 'warning' }, missing: { label: 'Chưa có ở inventory', tone: 'warning' },
+};
+
+/** Đối soát tồn kho sàn ↔ inventory (tồn để bán): lệch bền vững = event mất/trùng; admin phát lại event để tự đồng bộ. */
+function StockDrift() {
+  const qc = useQueryClient();
+  const { hasRole } = useAuth();
+  const q = useQuery({ queryKey: ['wh-drift'], queryFn: () => api.get<DriftReport>('/warehouse/reports/stock-drift') });
+  const refresh = useMutation({
+    mutationFn: () => api.get<DriftReport>('/warehouse/reports/stock-drift', { refresh: 'true' }),
+    onSuccess: (d) => qc.setQueryData(['wh-drift'], d),
+  });
+  const resync = useMutation({
+    mutationFn: () => api.post<{ resent: number }>('/warehouse/reports/stock-drift/resync'),
+    onSuccess: (r) => toast.success(`Đã phát lại ${r.resent} sự kiện tồn kho — inventory sẽ tự đồng bộ`),
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  return (
+    <QueryView q={q}>
+      {(d) => !d.enabled ? <EmptyState title="Chưa bật đối soát" description="Đặt RECONCILE_INTERVAL_SECONDS > 0 cho service warehouse." /> : (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <p className="min-w-0 flex-1 text-sm text-muted">
+              {d.error ? <span className="text-danger">Lần đối soát gần nhất lỗi: {d.error}</span>
+                : <>Đã so {formatNumber(d.skus ?? 0)} SKU lúc {formatDate(d.at)} · <b className={d.persistent ? 'text-danger' : 'text-success'}>{d.persistent ? `${d.persistent} SKU lệch bền vững (${formatNumber(d.units ?? 0)} đơn vị)` : 'không có lệch bền vững'}</b></>}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refresh.mutate()} disabled={refresh.isPending}>{refresh.isPending ? 'Đang so…' : 'Đối soát ngay'}</Button>
+              {hasRole('admin') && <Button onClick={() => resync.mutate()} disabled={resync.isPending || !d.persistent}>Đồng bộ lại</Button>}
+            </div>
+          </div>
+          <p className="text-xs text-muted">Kỳ vọng: tồn bán ở inventory = max(hàng bán được trong kho, hàng inventory đang giữ cho checkout). Lệch chỉ tính là bền vững khi lặp lại ở 2 lần đối soát liên tiếp.</p>
+          {(d.drifts ?? []).length === 0 ? <EmptyState title="Hai hệ thống khớp nhau" description="Không SKU nào lệch giữa kho sàn và inventory." /> : (
+            <DataTable rows={d.drifts ?? []} rowKey={(r) => r.skuId}
+              columns={[
+                { key: 'sku', header: 'SKU', primary: true, cell: (r) => <span className="font-mono text-xs break-all">{r.skuId}</span> },
+                { key: 'kind', header: 'Loại lệch', badge: true, cell: (r) => <Badge tone={r.persistent ? DRIFT[r.kind].tone : 'neutral'}>{DRIFT[r.kind].label}{r.persistent ? '' : ' (tạm thời)'}</Badge> },
+                { key: 'wh', header: 'Kho bán được', align: 'right', cell: (r) => formatNumber(r.warehouseAvailable) },
+                { key: 'inv', header: 'Inventory', align: 'right', cell: (r) => (r.inventoryOnHand == null ? '—' : formatNumber(r.inventoryOnHand)) },
+                { key: 'delta', header: 'Lệch', align: 'right', cell: (r) => <b className={r.delta > 0 ? 'text-danger' : 'text-warning'}>{r.delta > 0 ? '+' : ''}{formatNumber(r.delta)}</b> },
+                { key: 'shop', header: 'Shop', hideOnMobile: true, cell: (r) => <span className="font-mono text-xs break-all">{r.shopId}</span> },
+              ]} />
+          )}
+        </div>
+      )}
+    </QueryView>
   );
 }
 
