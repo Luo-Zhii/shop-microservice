@@ -17,6 +17,7 @@ GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tr�
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
+GET  /reports/alert-quality?days       chất lượng cảnh báo: flapping, tỉ lệ nhận, tỉ lệ khắc phục → khuyến nghị
 GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
 """
@@ -437,6 +438,12 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         return {"items": out}
 
     # ---------------------------------------------------------------- bàn giao ca trực
+    @app.get("/reports/alert-quality")
+    def alert_quality(days: int = Query(30, ge=1, le=180)):
+        from .agent.alert_quality import analyze
+
+        return analyze(responder.store, responder.clock(), days)
+
     @app.get("/reports/oncall-digest")
     def oncall_digest(hours: int = Query(24, ge=1, le=168)):
         from .agent.digest import build as build_digest

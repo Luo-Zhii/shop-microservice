@@ -153,9 +153,39 @@ function Digest() {
             </Card>
           )}
           <Card className="p-3"><pre className="whitespace-pre-wrap break-words text-sm">{d.markdown}</pre></Card>
+          <AlertQuality />
         </div>
       )}
     </QueryView>
+  );
+}
+
+interface AlertQ { alertname: string; incidents: number; flapping_ratio: number; ack_ratio: number; action_ratio: number; recommendation: 'noisy' | 'ticket' | 'actionable' | 'insufficient'; reason: string }
+const REC: Record<AlertQ['recommendation'], { label: string; tone: Tone }> = {
+  noisy: { label: 'Ồn — chỉnh ngưỡng', tone: 'danger' }, ticket: { label: 'Hạ xuống ticket', tone: 'warning' },
+  actionable: { label: 'Giữ nguyên', tone: 'success' }, insufficient: { label: 'Chưa đủ dữ liệu', tone: 'neutral' },
+};
+
+/** Alert hygiene 30 ngày: cảnh báo nào ồn (tự hết nhanh, không ai nhận) nên chỉnh, cảnh báo nào nên hạ xuống ticket. */
+function AlertQuality() {
+  const q = useQuery({ queryKey: ['aiops-alert-quality'], retry: false, queryFn: () => api.get<{ noise_ratio: number; items: AlertQ[] }>('/aiops/reports/alert-quality', { days: 30 }) });
+  if (!q.data?.items.length) return null;
+  const pct = (v: number) => Math.round(v * 100) + '%';
+  return (
+    <section>
+      <SectionTitle>Chất lượng cảnh báo (30 ngày)</SectionTitle>
+      <p className="-mt-2 mb-3 text-sm text-muted">{pct(q.data.noise_ratio)} sự cố đến từ cảnh báo ồn.</p>
+      <DataTable rows={q.data.items} rowKey={(r) => r.alertname}
+        columns={[
+          { key: 'name', header: 'Cảnh báo', primary: true, cell: (r) => <span className="font-mono text-sm break-all">{r.alertname}</span> },
+          { key: 'rec', header: 'Khuyến nghị', badge: true, cell: (r) => <Badge tone={REC[r.recommendation].tone}>{REC[r.recommendation].label}</Badge> },
+          { key: 'n', header: 'Sự cố', align: 'right', cell: (r) => r.incidents },
+          { key: 'flap', header: 'Tự hết < 5 phút', align: 'right', cell: (r) => pct(r.flapping_ratio) },
+          { key: 'ack', header: 'Có người nhận', align: 'right', hideOnMobile: true, cell: (r) => pct(r.ack_ratio) },
+          { key: 'act', header: 'Dẫn tới khắc phục', align: 'right', hideOnMobile: true, cell: (r) => pct(r.action_ratio) },
+          { key: 'why', header: 'Lý do', hideOnMobile: true, cell: (r) => <span className="text-xs">{r.reason}</span> },
+        ]} />
+    </section>
   );
 }
 

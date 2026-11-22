@@ -193,3 +193,27 @@ def test_similar_incidents_reuse_past_resolution(env):
     assert items[0]["score"] > 0.5 and "root:catalog" in items[0]["shared"] and items[0]["actions"][0]["type"] == "rollback"
     assert rv not in [i["id"] for i in items]
     assert c.get("/incidents/khong-co/similar").status_code == 404
+
+
+def test_alert_quality_flags_noisy_alerts(env):
+    """FlappyCPU: 4 lần tự hết sau 1 phút, không ai nhận → noisy; HighErrorRate catalog (deploy mới) dẫn tới rollback → actionable."""
+    c, sent, backend, clock, s = env
+    for k in range(3):                       # trong 30 phút sau deploy giả (NOW−10') → runbook chọn rollback
+        clock.t = NOW + k * 300
+        fp, st, end = f"fp-cat-{k}", f"2026-11-08T10:{k * 5:02d}:00Z", f"2026-11-08T10:{k * 5 + 3:02d}:00Z"
+        inc = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("catalog", fp=fp, starts=st)]}).json()["incidents"][0]
+        act = c.get(f"/incidents/{inc}").json()["actions"][0]
+        tok = parse_qs(urlparse(sent[-1]["reply_markup"]["inline_keyboard"][0][0]["url"]).query)["token"][0]
+        c.post(f"/actions/{act['id']}/approve", params={"token": tok})
+        c.post("/webhooks/alertmanager", json={"status": "resolved", "alerts": [alert("catalog", status="resolved", fp=fp, starts=st) | {"endsAt": end}]})
+    for k in range(4):
+        clock.t = NOW + (2 + k) * 3600
+        fp, st = f"fp-flap-{k}", f"2026-11-08T1{2 + k}:00:00Z"
+        c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("review", fp=fp, name="FlappyCPU", starts=st)]})
+        c.post("/webhooks/alertmanager", json={"status": "resolved", "alerts": [
+            alert("review", status="resolved", fp=fp, name="FlappyCPU", starts=st) | {"endsAt": f"2026-11-08T1{2 + k}:01:00Z"}]})
+    r = c.get("/reports/alert-quality?days=30").json()
+    by = {i["alertname"]: i for i in r["items"]}
+    assert by["FlappyCPU"]["recommendation"] == "noisy" and by["FlappyCPU"]["flapping_ratio"] == 1.0
+    assert by["HighErrorRate"]["recommendation"] == "actionable" and by["HighErrorRate"]["action_ratio"] == 1.0
+    assert r["items"][0]["alertname"] == "FlappyCPU" and r["noise_ratio"] > 0.5
