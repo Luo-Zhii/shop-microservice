@@ -26,3 +26,12 @@ hybrid (on-premises và AWS).
 Ảnh có sẵn: [container](diagrams/out/container.png) · [saga](diagrams/out/saga.png) · [trạng thái đơn](diagrams/out/order-state.png)
 · [Kafka](diagrams/out/kafka.png) · [hybrid](diagrams/out/deploy-hybrid.png) · [CI/CD](diagrams/out/cicd.png)
 · [AIOps](diagrams/out/aiops-loop.png).
+
+## Báo cáo Word
+
+`BaoCao_KLTN_DevSecOps_AIOps.docx` sinh **tự động từ chính các chương markdown** bằng `python3 docs/thesis/tao_bao_cao_kltn.py`
+(format Trường ĐH Thăng Long: bìa có viền + logo, mục lục / danh mục bảng / danh mục hình có số trang, danh mục từ viết tắt,
+chương, kết luận, tài liệu tham khảo gom từ chương 2, phụ lục báo cáo kiểm thử). Cần `python-docx`, `Pillow`, LibreOffice
+(`soffice`) và `pdftotext`; script chạy 2–3 lượt render PDF tuần tự để điền số trang (RAM tối đa ≈ 400 MB). Sửa nội dung thì sửa
+file `.md` rồi chạy lại — không sửa tay file Word. Trong Word, phần mở rộng là **Chương 7** (Kết luận không đánh số), mọi tham chiếu
+mục 8.x được đổi sang 7.x khi sinh.
