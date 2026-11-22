@@ -36,3 +36,4 @@ FORECAST_REPLICAS = Gauge("aiops_forecast_replicas", "Số replica tối thiểu
 DORA_VALUE = Gauge("aiops_dora_value", "Chỉ số DORA 30 ngày (tần suất: deploy/ngày; lead time, khôi phục: giây; CFR: tỉ lệ)",
                    ["metric", "environment"])
 DORA_BAND = Gauge("aiops_dora_band", "Mức DORA: 0=elite 1=high 2=medium 3=low", ["metric", "environment"])
+SLO_BUDGET_ETA = Gauge("aiops_slo_budget_eta_hours", "Dự báo số giờ tới khi cạn error budget (Theil–Sen 24h)", ["slo"])

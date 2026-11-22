@@ -36,7 +36,8 @@ class PrometheusClient:
 
     def range_by_label(self, q: str, start: float, end: float, step: int, label: str = "service") -> tuple[np.ndarray, dict[str, np.ndarray]]:
         """→ (grid timestamps, {giá trị nhãn: mảng giá trị trên lưới, NaN nếu thiếu})."""
-        grid = np.arange(start, end + 1e-9, step, dtype=float)
+        # + step/2 (không phải 1e-9): với epoch ~1.8e9, 1e-9 nhỏ hơn độ phân giải float64 → điểm MỚI NHẤT bị rơi
+        grid = np.arange(start, end + step / 2, step, dtype=float)
         out: dict[str, np.ndarray] = {}
         for series in self.query_range(q, start, end, step):
             key = series.get("metric", {}).get(label)

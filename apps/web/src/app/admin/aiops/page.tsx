@@ -180,7 +180,7 @@ function SimilarIncidents({ id }: { id: string }) {
   );
 }
 
-interface SloItem { slo: string; objective?: number | null; burn_rate?: number | null; budget_remaining?: number | null; state: 'exhausted' | 'fast_burn' | 'at_risk' | 'healthy'; services: string[] }
+interface SloItem { slo: string; objective?: number | null; burn_rate?: number | null; budget_remaining?: number | null; budget_eta_hours?: number | null; state: 'exhausted' | 'fast_burn' | 'at_risk' | 'healthy'; services: string[] }
 const SLO_STATE: Record<SloItem['state'], { label: string; tone: Tone }> = {
   exhausted: { label: 'Hết error budget', tone: 'danger' }, fast_burn: { label: 'Đốt nhanh', tone: 'danger' },
   at_risk: { label: 'Có rủi ro', tone: 'warning' }, healthy: { label: 'Khoẻ', tone: 'success' },
@@ -241,6 +241,10 @@ function Slo() {
               { key: 'obj', header: 'Mục tiêu', align: 'right', cell: (i) => pct(i.objective) },
               { key: 'burn', header: 'Tốc độ đốt', align: 'right', cell: (i) => (i.burn_rate == null ? '—' : <span className={i.burn_rate > 1 ? 'text-danger' : ''}>{i.burn_rate.toFixed(2)}×</span>) },
               { key: 'rem', header: 'Budget còn lại', align: 'right', cell: (i) => <b className={(i.budget_remaining ?? 1) <= 0 ? 'text-danger' : ''}>{pct(i.budget_remaining)}</b> },
+              // dự báo Theil–Sen 24h: còn bao lâu thì cạn budget (không giảm → không có dự báo)
+              { key: 'eta', header: 'Cạn sau', align: 'right', cell: (i) => (i.budget_eta_hours == null ? <span className="text-muted">—</span>
+                : <b className={i.budget_eta_hours < 48 ? 'text-danger' : i.budget_eta_hours < 168 ? 'text-warning' : ''}>
+                  {i.budget_eta_hours < 48 ? `${Math.round(i.budget_eta_hours)} giờ` : `${(i.budget_eta_hours / 24).toFixed(1)} ngày`}</b>) },
               { key: 'svc', header: 'Service ràng buộc', hideOnMobile: true, cell: (i) => <span className="text-xs">{i.services.join(', ') || '—'}</span> },
             ]} />
         )}

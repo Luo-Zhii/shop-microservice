@@ -835,12 +835,28 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             except Exception as e:  # noqa: BLE001
                 log.warning("slo %s lỗi: %s", key, e)
         slo_svcs = ((settings.raw.get("error_budget") or {}).get("slos") or {})
+        try:   # dự báo ngày cạn budget (Theil–Sen 24h) — lỗi dự báo không làm hỏng trạng thái hiện tại
+            from .metrics import SLO_BUDGET_ETA
+            from .slo_forecast import forecast
+
+            fc = forecast(responder.prom, responder.clock())
+            SLO_BUDGET_ETA.clear()
+            for slo, f in fc.items():
+                if f["eta_hours"] is not None:
+                    SLO_BUDGET_ETA.labels(slo).set(f["eta_hours"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("dự báo error budget lỗi: %s", e)
+            fc = {}
         out = []
         for slo, r in sorted(rows.items()):
             rem, burn = r.get("budget_remaining"), r.get("burn_rate")
+            f = fc.get(slo) or {}
+            eta = f.get("eta_hours")
             state = ("exhausted" if rem is not None and rem <= 0 else "fast_burn" if burn is not None and burn >= 6
-                     else "at_risk" if (rem is not None and rem < 0.25) or (burn is not None and burn > 1) else "healthy")
-            out.append({**r, "state": state, "services": slo_svcs.get(slo, [])})
+                     else "at_risk" if (rem is not None and rem < 0.25) or (burn is not None and burn > 1)
+                     or (eta is not None and eta < 72) else "healthy")
+            out.append({**r, "state": state, "services": slo_svcs.get(slo, []), "budget_eta_hours": eta,
+                        "budget_slope_per_day": f.get("slope_per_day")})
         return {"items": out}
 
     @app.get("/synthetic/status")
