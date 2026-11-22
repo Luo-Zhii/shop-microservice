@@ -28,16 +28,44 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'capacity' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
+      {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'digest' && <Digest />}
     </div>
+  );
+}
+
+interface SloItem { slo: string; objective?: number | null; burn_rate?: number | null; budget_remaining?: number | null; state: 'exhausted' | 'fast_burn' | 'at_risk' | 'healthy'; services: string[] }
+const SLO_STATE: Record<SloItem['state'], { label: string; tone: Tone }> = {
+  exhausted: { label: 'Hết error budget', tone: 'danger' }, fast_burn: { label: 'Đốt nhanh', tone: 'danger' },
+  at_risk: { label: 'Có rủi ro', tone: 'warning' }, healthy: { label: 'Khoẻ', tone: 'success' },
+};
+
+/** Trạng thái SLO (Sloth): hết budget → chính sách đóng băng thay đổi không khẩn cấp (chấm rủi ro thay đổi ép mức high). */
+function Slo() {
+  const q = useQuery({ queryKey: ['aiops-slo'], retry: false, refetchInterval: 60_000, queryFn: () => api.get<{ items: SloItem[] }>('/aiops/slo/status') });
+  const pct = (v?: number | null) => (v == null ? '—' : (v * 100).toFixed(v >= 0.99 ? 1 : 0) + '%');
+  return (
+    <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có SLO" description="Sloth chưa sinh recording rule hoặc Prometheus chưa sẵn sàng." />}>
+      {(d) => (
+        <DataTable rows={d.items} rowKey={(i) => i.slo}
+          columns={[
+            { key: 'slo', header: 'SLO', primary: true, cell: (i) => <span className="font-mono text-sm break-all">{i.slo}</span> },
+            { key: 'st', header: 'Trạng thái', badge: true, cell: (i) => <Badge tone={SLO_STATE[i.state].tone}>{SLO_STATE[i.state].label}</Badge> },
+            { key: 'obj', header: 'Mục tiêu', align: 'right', cell: (i) => pct(i.objective) },
+            { key: 'burn', header: 'Tốc độ đốt', align: 'right', cell: (i) => (i.burn_rate == null ? '—' : <span className={i.burn_rate > 1 ? 'text-danger' : ''}>{i.burn_rate.toFixed(2)}×</span>) },
+            { key: 'rem', header: 'Budget còn lại', align: 'right', cell: (i) => <b className={(i.budget_remaining ?? 1) <= 0 ? 'text-danger' : ''}>{pct(i.budget_remaining)}</b> },
+            { key: 'svc', header: 'Service ràng buộc', hideOnMobile: true, cell: (i) => <span className="text-xs">{i.services.join(', ') || '—'}</span> },
+          ]} />
+      )}
+    </QueryView>
   );
 }
 

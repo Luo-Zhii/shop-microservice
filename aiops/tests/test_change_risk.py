@@ -159,3 +159,35 @@ def test_platform_summary(tmp_path):
     s.db_url, s.prometheus_url = f"sqlite:///{tmp_path / 'j.db'}", ""
     with TestClient(create_app(s, prom=None, **deps)) as c:
         assert c.get("/platform/summary").json()["prometheus"] is False
+
+
+def test_slo_status_from_sloth_rules(tmp_path):
+    import httpx
+    from fastapi.testclient import TestClient
+
+    from aiops.agent.kube import RecordingBackend, StaticInspector
+    from aiops.agent.notifier import Notifier
+    from aiops.api import create_app
+    from aiops.collectors.prometheus import PrometheusClient
+    from aiops.config import load_settings
+    from aiops.llm import NoneProvider
+
+    vals = {"slo:objective:ratio": {"order-saga-success": 0.99, "web-lcp-good": 0.75, "gateway-availability": 0.995},
+            "slo:current_burn_rate:ratio": {"order-saga-success": 0.4, "web-lcp-good": 8.0, "gateway-availability": 1.5},
+            "slo:period_burn_rate:ratio": {"order-saga-success": 0.5, "web-lcp-good": 2.0, "gateway-availability": 1.1},
+            "slo:period_error_budget_remaining:ratio": {"order-saga-success": 0.8, "web-lcp-good": 0.3, "gateway-availability": -0.1}}
+
+    def prom(req):
+        q = req.url.params.get("query", "")
+        res = [{"metric": {"sloth_slo": k, "sloth_service": "shopnow"}, "value": [0, str(v)]} for k, v in vals.get(q, {}).items()]
+        return httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": res}})
+
+    s = load_settings()
+    s.db_url, s.audit_log, s.detector_enabled = f"sqlite:///{tmp_path / 'i.db'}", str(tmp_path / "a.jsonl"), False
+    app = create_app(s, prom=PrometheusClient("http://p", transport=httpx.MockTransport(prom)), loki=None, inspector=StaticInspector(),
+                     backend=RecordingBackend(), notifier=Notifier("", "", enabled=False), llm=NoneProvider())
+    with TestClient(app) as c:
+        by = {i["slo"]: i for i in c.get("/slo/status").json()["items"]}
+        assert by["gateway-availability"]["state"] == "exhausted"
+        assert by["web-lcp-good"]["state"] == "fast_burn" and by["web-lcp-good"]["services"] == ["web", "api-gateway"]
+        assert by["order-saga-success"]["state"] == "healthy" and by["order-saga-success"]["objective"] == 0.99

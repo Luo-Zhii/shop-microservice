@@ -14,6 +14,7 @@ POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác min
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
+GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
 GET  /reports/oncall-digest?hours  bản tin bàn giao ca trực · POST …/send đẩy lên kênh trực
 POST /mcp                              MCP server (JSON-RPC 2.0) — Bearer MCP_TOKEN
@@ -396,6 +397,34 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                         "event_uplift": uplift})
         return {"horizon_hours": hours, "step_seconds": step, "upcoming_flash_sales": len(upcoming),
                 "past_flash_sales": len(past), "items": out}
+
+    # ---------------------------------------------------------------- trạng thái SLO (recording rule chuẩn của Sloth)
+    @app.get("/slo/status")
+    def slo_status():
+        """Mỗi SLO: mục tiêu, tốc độ đốt budget hiện tại (1 = đốt vừa đủ hết budget đúng cuối kỳ 30 ngày), budget còn lại."""
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        metrics = {"objective": "slo:objective:ratio", "burn_rate": "slo:current_burn_rate:ratio",
+                   "period_burn_rate": "slo:period_burn_rate:ratio", "budget_remaining": "slo:period_error_budget_remaining:ratio"}
+        rows: dict[str, dict] = {}
+        for key, q in metrics.items():
+            try:
+                for r in responder.prom.query(q):
+                    slo = r["metric"].get("sloth_slo")
+                    if not slo:
+                        continue
+                    v = float(r["value"][1])
+                    rows.setdefault(slo, {"slo": slo, "service": r["metric"].get("sloth_service")})[key] = None if v != v else round(v, 5)
+            except Exception as e:  # noqa: BLE001
+                log.warning("slo %s lỗi: %s", key, e)
+        slo_svcs = ((settings.raw.get("error_budget") or {}).get("slos") or {})
+        out = []
+        for slo, r in sorted(rows.items()):
+            rem, burn = r.get("budget_remaining"), r.get("burn_rate")
+            state = ("exhausted" if rem is not None and rem <= 0 else "fast_burn" if burn is not None and burn >= 6
+                     else "at_risk" if (rem is not None and rem < 0.25) or (burn is not None and burn > 1) else "healthy")
+            out.append({**r, "state": state, "services": slo_svcs.get(slo, [])})
+        return {"items": out}
 
     # ---------------------------------------------------------------- bàn giao ca trực
     @app.get("/reports/oncall-digest")

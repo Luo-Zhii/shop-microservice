@@ -22,6 +22,7 @@ const fixtures = [
   [/warehouse\/seller\/stock/, { items: [{ sku_id: 'sku-ao-thun-cotton-oversize-mau-den-size-xxl', warehouse: 'HCM1', on_hand: 7, available: 6, quarantined: 1 }] }],
   [/identity\/auth\/refresh/, { accessToken: jwt, refreshToken: 'rt' }],
   [/identity\/(users\/)?me/, { id: 'u-admin', email: 'admin@shopnow.local', fullName: 'Quản trị', roles: ['admin'] }],
+  [/aiops\/slo\/status/, { items: [{ slo: 'gateway-availability', objective: 0.995, burn_rate: 1.52, budget_remaining: -0.1, state: 'exhausted', services: ['api-gateway'] }, { slo: 'web-lcp-good', objective: 0.75, burn_rate: 8.0, budget_remaining: 0.3, state: 'fast_burn', services: ['web', 'api-gateway'] }] }],
   [/aiops\/capacity\/forecast/, { upcoming_flash_sales: 1, past_flash_sales: 2, items: [{ service: 'api-gateway-very-long-name', model: 'holt-winters', current: 123.4, peak: 456.7, rmse: 12.3, rps_per_pod: 150, recommended_min_replicas: 5, scale_up_ahead: true, event_uplift: 2.95 }] }],
   [/aiops\/reports\/oncall-digest/, { incidents: { new: 3, open: 2, resolved: 1 }, attention: ['2 sự cố mở > 4h chưa ai nhận: catalog-very-long-service-name, order'], markdown: '🗂 *Bàn giao ca trực* — 24h qua\n\n• Sự cố mới 3 · đang mở 2 · đã đóng 1 · MTTR trung vị 12m30s\n• Ồn nhất: catalog-very-long-service-name (3)' }],
   [/aiops\/platform\/summary/, { incidents_open: 3, cost_per_order_usd: 0.0123, lcp_p75_s: 3.1, error_budget: { 'order-saga-success': -0.05, 'web-lcp-good': 0.42 }, prometheus: true }],
@@ -48,6 +49,7 @@ const fixtures = [
 ];
 
 const PAGES = [
+  ['/admin/aiops#slo', 'SLO'],
   ['/admin/aiops#capacity', 'Dự báo dung lượng'], ['/admin/aiops#digest', 'Bàn giao ca'],
   ['/admin', null],
   ['/seller/statement', null], ['/seller/fulfillment', null],
