@@ -18,6 +18,7 @@ jobs:
       - name: Sao chép images.yaml
         run: |
           test "${{ inputs.from }}" != "${{ inputs.to }}"
+          cp "environments/${{ inputs.to }}/images.yaml" "$RUNNER_TEMP/images-before.yaml"
           cp "environments/${{ inputs.from }}/images.yaml" "environments/${{ inputs.to }}/images.yaml"
           git diff --stat
       - uses: peter-evans/create-pull-request@v7
@@ -30,3 +31,16 @@ jobs:
             - Canary (Argo Rollouts) + AnalysisTemplate tự rollback nếu error rate / p95 vượt ngưỡng.
             - Rollback thủ công: revert PR này.
           labels: release, ${{ inputs.to }}
+      # Vòng học change-risk: ghi diff thật (tag cũ → tag mới của từng service) vào AIOps; nhãn gắn sau 2h theo RCA.
+      - uses: actions/checkout@v4
+        if: vars.AIOPS_URL != ''
+        with: { path: app, fetch-depth: 0 }
+      - name: Ghi deploy vào AIOps change-risk
+        if: vars.AIOPS_URL != ''
+        continue-on-error: true   # AIOps chậm/sập không được chặn release
+        run: |
+          pip install -q pyyaml
+          python app/scripts/ci/record_deploy.py --repo app \
+            --before "$RUNNER_TEMP/images-before.yaml" --after "environments/${{ inputs.to }}/images.yaml" \
+            --url "${{ vars.AIOPS_URL }}" --token "${{ secrets.AIOPS_TOKEN }}" \
+            --ref "promote ${{ inputs.from }}→${{ inputs.to }} #${{ github.run_number }}"

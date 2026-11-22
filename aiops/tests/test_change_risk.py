@@ -220,3 +220,28 @@ def test_risk_model_learns_from_deploy_history(tmp_path):
         assert r["weights"]["migration"] > PRIOR["migration"] and r["logloss_fit"] <= r["logloss_prior"]
         scored = c.post("/change-risk", json={"files": [{"path": "services/catalog/migrations/099.sql", "lines": 80}]}).json()
         assert scored["weights_source"] == "fitted"
+
+
+def test_fit_labels_use_rca_root_cause(tmp_path):
+    """Nhãn sạch: sự cố cảnh báo ở catalog nhưng RCA chỉ ra payment → deploy catalog KHÔNG bị gắn nhãn gây sự cố;
+    sự cố cảnh báo ở order nhưng RCA = inventory → deploy inventory bị gắn nhãn (bắt được lỗi lan hạ nguồn)."""
+    from .test_mcp_investigator import make_app
+
+    with make_app(tmp_path) as c:
+        st = c.app.state.responder.store
+        base = 1_790_000_000.0
+        cases = [("catalog", "catalog", "payment", 0), ("inventory", "order", "inventory", 1),
+                 ("search", "search", None, 1), ("review", "order", None, 0)]
+        for k, (dep, alerted, root, _) in enumerate(cases):
+            at = base + k * 6 * 3600
+            c.post("/change-risk/deploys", json={"files": [{"path": f"services/{dep}/src/a.ts", "lines": 10}], "at": at, "ref": dep})
+            inc = st.create_incident(service=alerted, namespace="shopnow", severity="critical", title="x", source="test",
+                                     detected_at=at + 600, alerts=[])
+            if root:
+                st.update_incident(inc["id"], root_causes=[{"service": root, "score": 0.9}])
+        c.app.state.responder.clock = lambda: base + 30 * 3600
+        r = c.post("/change-risk/fit?min_records=30").json()
+        assert r["labeled_now"] == 4 and r["positives"] == 2
+        assert r["label_rules"] == {"rca": 1, "alert": 1, "rca_excluded": 1}
+        labels = {d["ref"]: d["label"] for d in st.deploys()}
+        assert labels == {dep: want for dep, _, _, want in cases}

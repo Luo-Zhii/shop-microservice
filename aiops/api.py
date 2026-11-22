@@ -13,7 +13,7 @@ GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ d
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
 POST /change-risk {files:[{path,lines}], at?}  chấm rủi ro thay đổi + canary đề xuất (trọng số đã học nếu có)
-POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật → gắn nhãn sau 2h → học lại trọng số
+POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật (promote.yml) → gắn nhãn sau 2h theo RCA → học lại trọng số
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
@@ -353,15 +353,27 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         from .change_risk import FEATURES, PRIOR, fit, log_loss
 
         now, win = responder.clock(), window_hours * 3600
-        labeled_now = 0
+        labeled_now, by_rule = 0, {"rca": 0, "alert": 0, "rca_excluded": 0}
         for d in responder.store.deploys(unlabeled_before=now - win):
-            hit = any(i["detected_at"] <= d["deployed_at"] + win
-                      for s in d["services"] for i in responder.store.list_incidents(service=s, since=d["deployed_at"], limit=50))
-            responder.store.label_deploy(d["id"], int(hit), now)
+            # Làm sạch nhãn bằng RCA: sự cố chỉ "do deploy" khi nguyên nhân gốc top-1 là service vừa deploy
+            # (bắt cả sự cố cảnh báo ở service hạ nguồn); chưa có RCA mới xét service bị cảnh báo.
+            svcs, hit = set(d["services"]), None
+            for i in responder.store.list_incidents(since=d["deployed_at"], limit=1000):
+                if i["detected_at"] > d["deployed_at"] + win:
+                    continue
+                rc = (i.get("root_causes") or [{}])[0].get("service")
+                if rc and rc in svcs or not rc and i["service"] in svcs:
+                    hit = "rca" if rc else "alert"
+                    break
+                if rc and i["service"] in svcs:
+                    by_rule["rca_excluded"] += 1   # cảnh báo ở service vừa deploy nhưng RCA chỉ ra nơi khác
+            if hit:
+                by_rule[hit] += 1
+            responder.store.label_deploy(d["id"], int(bool(hit)), now)
             labeled_now += 1
         data = [d for d in responder.store.deploys() if d["label"] is not None]
         pos = sum(d["label"] for d in data)
-        out = {"labeled_now": labeled_now, "records": len(data), "positives": pos}
+        out = {"labeled_now": labeled_now, "records": len(data), "positives": pos, "label_rules": by_rule}
         if len(data) < min_records or pos == 0 or pos == len(data):
             return {**out, "fitted": False, "reason": f"cần ≥ {min_records} deploy đã gắn nhãn và có cả hai lớp"}
         X = [{k: float(d["features"].get(k, 0.0)) for k in FEATURES} for d in data]
