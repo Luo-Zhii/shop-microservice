@@ -94,6 +94,8 @@ class Toolbox:
                  {"service": svc}, ["service"], self.service_dependencies),
             Tool("rank_root_causes", "Xếp hạng nguyên nhân gốc bằng personalized PageRank trên đồ thị phụ thuộc.",
                  {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.rank_root_causes),
+            Tool("similar_incidents", "Sự cố tương tự ĐÃ ĐÓNG trước đây: điểm giống, nguyên nhân gốc, hành động đã làm, MTTR.",
+                 {"incident_id": _str("Mã sự cố")}, ["incident_id"], self.similar_incidents),
             Tool("propose_remediation", "ĐỀ XUẤT hành động khắc phục (không thực thi; cần người duyệt qua PR GitOps).",
                  {"incident_id": _str("Mã sự cố"), "action": _str("Hành động", list(REMEDIATIONS)), "service": svc,
                   "reason": _str("Lý do, trích evidence id")}, ["incident_id", "action", "service", "reason"],
@@ -210,6 +212,11 @@ class Toolbox:
                                   alpha=float(rc.get("alpha", 0.85)), floor=float(rc.get("anomaly_floor", 0.3)),
                                   backward=float(rc.get("backward_weight", 0.1)))
         return {"ranking": ranked}
+
+    def similar_incidents(self, incident_id: str) -> dict:
+        from ..agent.similar import find_similar
+
+        return {"items": find_similar(self.r.store, incident_id, 3)}
 
     def propose_remediation(self, incident_id: str, action: str, service: str, reason: str) -> dict:
         self._incident(incident_id)

@@ -177,3 +177,19 @@ def test_oncall_digest(env):
     n = len(sent)
     r = c.post("/reports/oncall-digest/send").json()
     assert r["sent"][0]["channel"] == "telegram" and len(sent) == n + 1
+
+
+def test_similar_incidents_reuse_past_resolution(env):
+    """Sự cố catalog lần 2 (cùng deploy lỗi) tìm ra lần 1 đã đóng kèm hành động rollback; sự cố review không liên quan thì không."""
+    c, sent, backend, clock, s = env
+    first = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("catalog", fp="fp-c1")]}).json()["incidents"][0]
+    c.post("/webhooks/alertmanager", json={"status": "resolved", "alerts": [alert("catalog", status="resolved", fp="fp-c1") | {"endsAt": "2026-11-08T10:20:00Z"}]})
+    rv = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("review", fp="fp-r1")]}).json()["incidents"][0]
+    c.post("/webhooks/alertmanager", json={"status": "resolved", "alerts": [alert("review", status="resolved", fp="fp-r1") | {"endsAt": "2026-11-08T10:25:00Z"}]})
+    clock.t += 3600
+    second = c.post("/webhooks/alertmanager", json={"status": "firing", "alerts": [alert("catalog", fp="fp-c2", starts="2026-11-08T11:00:00Z")]}).json()["incidents"][0]
+    items = c.get(f"/incidents/{second}/similar").json()["items"]
+    assert [i["id"] for i in items] == [first]
+    assert items[0]["score"] > 0.5 and "root:catalog" in items[0]["shared"] and items[0]["actions"][0]["type"] == "rollback"
+    assert rv not in [i["id"] for i in items]
+    assert c.get("/incidents/khong-co/similar").status_code == 404

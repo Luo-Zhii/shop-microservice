@@ -8,6 +8,7 @@ GET|POST /actions/{id}/approve?token=…  |  /actions/{id}/reject?token=…   (t
 GET  /anomalies                        snapshot điểm bất thường hiện tại
 POST /rca {scores?: {svc: điểm}}       chạy RCA theo yêu cầu
 POST /incidents/{id}/agent-investigate tác tử điều tra nhiều bước (LLM ReAct | planner), grounding + interlock
+GET  /incidents/{id}/similar            sự cố tương tự đã đóng (dấu vân tay Jaccard có trọng số) + cách đã xử lý
 GET  /incidents/{id}/postmortem?format=json|md  postmortem blameless sinh từ dữ liệu sự cố
 GET  /incidents/{id}/investigations    lịch sử điều tra (bước, bằng chứng, giả thuyết, chi phí)
 POST /investigations/{id}/propose-pr   bản vá shop-gitops → cổng xác minh → PR (cần người duyệt)
@@ -251,6 +252,15 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     @app.get("/incidents/{incident_id}/investigations")
     def investigations(incident_id: str):
         return {"items": [to_api(i) for i in responder.store.investigations_for(incident_id)]}
+
+    @app.get("/incidents/{incident_id}/similar")
+    def similar(incident_id: str, k: int = Query(3, ge=1, le=10)):
+        from .agent.similar import find_similar
+
+        try:
+            return {"items": find_similar(responder.store, incident_id, k)}
+        except KeyError:
+            return err(404, "NOT_FOUND", "không có sự cố")
 
     @app.get("/incidents/{incident_id}/postmortem")
     def postmortem(incident_id: str, format: str = "json"):

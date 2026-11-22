@@ -42,6 +42,34 @@ export default function AdminAiopsPage() {
   );
 }
 
+interface SimilarItem { id: string; title: string | null; service: string; score: number; root_cause: string | null; actions: { type: string; status: string }[]; mttr_s: number | null }
+
+/** "Lần trước bị thế này đã làm gì?" — sự cố đã đóng có dấu vân tay giống (service, nguyên nhân gốc, đặc trưng, alert). */
+function SimilarIncidents({ id }: { id: string }) {
+  const q = useQuery({ queryKey: ['aiops-similar', id], retry: false, queryFn: () => api.get<{ items: SimilarItem[] }>(`/aiops/incidents/${id}/similar`) });
+  if (!q.data?.items.length) return null;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Sự cố tương tự đã xử lý</SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {q.data.items.map((s) => (
+          <li key={s.id} className="rounded-xl border border-border p-3 text-sm">
+            <div className="flex items-start gap-2">
+              <span className="min-w-0 flex-1 break-words font-medium">{s.title ?? s.service}</span>
+              <Badge tone="info">giống {Math.round(s.score * 100)}%</Badge>
+            </div>
+            <p className="mt-1 break-words text-muted">
+              Gốc: <b>{s.root_cause ?? '—'}</b>
+              {' · '}Đã làm: {s.actions.length ? s.actions.map((a) => a.type + ' (' + a.status + ')').join(', ') : 'chỉ thông báo'}
+              {s.mttr_s != null && ' · khắc phục sau ' + Math.round(s.mttr_s / 60) + ' phút'}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 interface SloItem { slo: string; objective?: number | null; burn_rate?: number | null; budget_remaining?: number | null; state: 'exhausted' | 'fast_burn' | 'at_risk' | 'healthy'; services: string[] }
 const SLO_STATE: Record<SloItem['state'], { label: string; tone: Tone }> = {
   exhausted: { label: 'Hết error budget', tone: 'danger' }, fast_burn: { label: 'Đốt nhanh', tone: 'danger' },
@@ -206,6 +234,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
       </>}>
       <p className="mb-3 break-words text-sm">{incident.title}</p>
       {incident.summary && <Card className="mb-4 p-3 text-sm whitespace-pre-line">{incident.summary}</Card>}
+      <SimilarIncidents id={incident.id} />
       <QueryView q={inv} isEmpty={(d) => !d.items.length}
         empty={<EmptyState icon={<Bot className="size-6" />} title="Chưa có bản điều tra" description="Bấm “Tác tử điều tra” để chạy RCA nhiều bước qua công cụ MCP." />}>
         {() => latest && (
