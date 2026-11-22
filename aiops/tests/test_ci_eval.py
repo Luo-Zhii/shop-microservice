@@ -91,3 +91,15 @@ def test_agent_eval_grounding_gate_blocks_hallucinations(tmp_path):
         assert s["llm_halluc"]["hallucination_accepted"] == 0
         assert s["llm_halluc_nogate"]["hallucination_accepted"] == 1
     assert (tmp_path / "agent_eval.csv").exists()
+
+
+def test_kpi_eval_infra_blind_to_silent_failures(tmp_path):
+    """Detector hạ tầng thuần không thấy sự cố câm; thêm KPI có hướng thì thấy, không tăng báo động giả."""
+    from aiops.eval.kpi_eval import run
+
+    r = run(4, 7, tmp_path)
+    assert r["recall_silent"]["infra"] == 0.0
+    for k in ("checkout_bug", "lcp_regression", "credential_stuff"):
+        assert r["recall_by_kind"]["infra+kpi"][k] == 1.0
+    assert r["false_alarm_rate"]["infra+kpi"] == 0.0
+    assert (tmp_path / "kpi_eval_summary.json").exists()

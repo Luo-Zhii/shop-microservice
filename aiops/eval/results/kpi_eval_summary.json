@@ -1,0 +1,93 @@
+{
+  "per_kind": 20,
+  "seed": 42,
+  "threshold": 0.6,
+  "results": {
+    "infra": {
+      "checkout_bug": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "lcp_regression": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "credential_stuff": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "checkout_partial": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "normal": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "legit_surge": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      }
+    },
+    "infra+kpi": {
+      "checkout_bug": {
+        "hit": 20,
+        "fp": 0,
+        "n": 20
+      },
+      "lcp_regression": {
+        "hit": 20,
+        "fp": 0,
+        "n": 20
+      },
+      "credential_stuff": {
+        "hit": 20,
+        "fp": 0,
+        "n": 20
+      },
+      "checkout_partial": {
+        "hit": 6,
+        "fp": 0,
+        "n": 20
+      },
+      "normal": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      },
+      "legit_surge": {
+        "hit": 0,
+        "fp": 0,
+        "n": 20
+      }
+    }
+  },
+  "recall_silent": {
+    "infra": 0.0,
+    "infra+kpi": 0.825
+  },
+  "recall_by_kind": {
+    "infra": {
+      "checkout_bug": 0.0,
+      "lcp_regression": 0.0,
+      "credential_stuff": 0.0,
+      "checkout_partial": 0.0
+    },
+    "infra+kpi": {
+      "checkout_bug": 1.0,
+      "lcp_regression": 1.0,
+      "credential_stuff": 1.0,
+      "checkout_partial": 0.3
+    }
+  },
+  "false_alarm_rate": {
+    "infra": 0.0,
+    "infra+kpi": 0.0
+  }
+}
