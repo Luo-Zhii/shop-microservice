@@ -137,6 +137,18 @@ error_budget:
     checkout-latency: [order, payment, inventory, cart, api-gateway]
     order-saga-success: [order, payment, inventory]
     web-lcp-good: [web, api-gateway]
+    catalog-availability: [catalog]
+    search-availability: [search]
+    identity-availability: [identity]
+    accounting-availability: [accounting]
+    warehouse-availability: [warehouse]
+    promotion-availability: [promotion]
+    review-availability: [review]
+    seller-availability: [seller]
+    shipping-availability: [shipping]
+    user-profile-availability: [user-profile]
+    notification-availability: [notification]
+    ai-service-availability: [ai-service]
 
 # Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
 capacity:

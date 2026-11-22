@@ -36,6 +36,14 @@ def _load(p: Path) -> dict:
     return yaml.safe_load(p.read_text()) or {} if p.exists() else {}
 
 
+def _merge(a: dict, b: dict) -> dict:
+    """Gộp sâu như Helm: b ghi đè a, dict lồng được gộp đệ quy."""
+    out = dict(a)
+    for k, v in (b or {}).items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
 def _codeowners(root: Path) -> list[str]:
     for p in (root / ".github/CODEOWNERS", root / "CODEOWNERS"):
         if p.exists():
@@ -53,24 +61,26 @@ def evaluate(app_root: Path, gitops_root: Path) -> list[dict]:
     kpi_svcs = set((aiops.get("kpis") or {}).keys())
     chaos_dir = gitops_root / "platform/chaos/experiments"
     chaos_text = " ".join(p.read_text() for p in chaos_dir.glob("*.yaml")) if chaos_dir.exists() else ""
-    env_rollout = any((_load(p).get("rollout") or {}).get("enabled") for p in (gitops_root / "environments").glob("*/values.yaml"))
+    # giá trị HIỆU LỰC như Helm: chart defaults → values-common → file service (không đọc riêng file service — dễ chấm sai)
+    base = _merge(_load(gitops_root / "charts/shopnow-service/values.yaml"), _load(gitops_root / "apps/shopnow/values-common.yaml"))
     out = []
     for svc_dir in sorted(p for p in (app_root / "services").iterdir() if p.is_dir()):
         svc = svc_dir.name
-        values = _load(gitops_root / f"apps/shopnow/services/{svc}.yaml")
+        own = _load(gitops_root / f"apps/shopnow/services/{svc}.yaml")
+        values = _merge(base, own) if own else {}
         ing = ((values.get("networkPolicy") or {}).get("ingress") or {})
         checks = {
             "tests": any(svc_dir.glob("test/**/*.test.ts")) or any(svc_dir.glob("**/*_test.go")) or any(svc_dir.glob("tests/test_*.py")),
-            "deploy_config": bool(values),
+            "deploy_config": bool(own),
             "ci_build": svc in images,
             "owner": any(re.fullmatch(o.rstrip("/").replace("*", ".*").lstrip("/") + "(/.*)?", f"services/{svc}") or o in ("*", "/")
                          for o in owners),
             # chart mặc định bật NetworkPolicy (default-deny, chỉ gateway vào) → đạt trừ khi tắt hẳn hoặc mở cả namespace
             "network_policy": (values.get("networkPolicy") or {}).get("enabled", True) is not False and not ing.get("fromSameNamespace"),
-            "autoscaling": bool(values.get("autoscaling")),
+            "autoscaling": bool((values.get("autoscaling") or {}).get("enabled")),
             "aiops_monitored": svc in monitored,
             "slo": svc in slo_svcs,
-            "canary": bool((values.get("rollout") or {}).get("enabled")) or (env_rollout and "rollout" in values),
+            "canary": bool((values.get("rollout") or {}).get("enabled")),
             "chaos": f"app.kubernetes.io/name: {svc}" in chaos_text or f"expected-root-cause: {svc}" in chaos_text,
             "kpi": svc in kpi_svcs,
         }
