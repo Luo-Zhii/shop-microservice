@@ -151,6 +151,13 @@ error_budget:
     ai-service-availability: [ai-service]
 
 # Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
+# Đóng băng thay đổi quanh flash sale: deploy chạm service trên đường mua hàng (mặc định = capacity.event_services)
+# trong [bắt đầu − before, kết thúc + after] → /change-risk ép mức high + duyệt tay; `emergency: true` để bỏ qua (có audit).
+change_freeze:
+  enabled: true
+  before_minutes: 120
+  after_minutes: 60
+
 capacity:
   step_seconds: 900
   lookback_days: 15             # ≥ 14 ngày → khử mùa vụ tuần (cuối tuần) trước Holt-Winters ngày

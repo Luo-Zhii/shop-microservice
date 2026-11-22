@@ -319,12 +319,67 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                               details={"investigation": investigation_id, **{k: pr.get(k) for k in ("url", "problems")}})
         return pr
 
+    def flash_sales(start: float, end: float) -> list[tuple[float, float]]:
+        """Lịch flash sale từ promotion trong [start, end] → [(bắt đầu, kết thúc)] epoch giây. Lỗi mạng ném lên cho nơi gọi."""
+        from datetime import datetime, timezone
+
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+        with httpx.Client(base_url=os.getenv("PROMOTION_URL", "http://promotion:8108"), timeout=5,
+                          headers={"x-internal-token": os.getenv("INTERNAL_TOKEN", "")},
+                          transport=app.state.promotion_transport) as pc:
+            r = pc.get("/internal/flash-sales/window", params={"from": iso(start), "to": iso(end)})
+            r.raise_for_status()
+        return [(parse_ts(ev["startsAt"]), parse_ts(ev["endsAt"])) for ev in r.json()["items"]]
+
+    def change_freeze(at: float, services: list[str]) -> dict | None:
+        """Đóng băng thay đổi quanh flash sale (như các sàn lớn dịp 11/11, Black Friday): deploy chạm service trên
+        đường mua hàng trong [bắt đầu − before, kết thúc + after] → cần duyệt tay. Không đọc được lịch → không chặn
+        (fail-open: mất promotion không được làm tê liệt cả quy trình release), nhưng ghi rõ trong kết quả."""
+        cfg = settings.raw.get("change_freeze") or {}
+        if cfg.get("enabled") is False:
+            return None
+        scope = set(cfg.get("services") or (settings.raw.get("capacity") or {}).get("event_services") or [])
+        hit = sorted(set(services) & scope)
+        if not hit:
+            return None
+        before, after = float(cfg.get("before_minutes", 120)) * 60, float(cfg.get("after_minutes", 60)) * 60
+        try:
+            sales = flash_sales(at - after, at + before)
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            log.warning("không đọc được lịch flash sale cho đóng băng thay đổi: %s", e)
+            return {"active": False, "error": "không đọc được lịch flash sale — chưa áp đóng băng"}
+        for s0, s1 in sorted(sales):
+            if s0 - before <= at <= s1 + after:
+                return {"active": True, "services": hit, "sale_starts": s0, "sale_ends": s1,
+                        "window": [s0 - before, s1 + after]}
+        return None
+
+    @app.get("/change-risk/freeze-windows")
+    def freeze_windows(hours: int = Query(48, ge=1, le=336)):
+        """Lịch đóng băng thay đổi sắp tới (từ lịch flash sale) để đội phát triển lên kế hoạch release tránh giờ cao điểm."""
+        from datetime import datetime, timezone
+
+        cfg = settings.raw.get("change_freeze") or {}
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+        scope = sorted(set(cfg.get("services") or (settings.raw.get("capacity") or {}).get("event_services") or []))
+        if cfg.get("enabled") is False:
+            return {"enabled": False, "services": scope, "items": []}
+        now = responder.clock()
+        before, after = float(cfg.get("before_minutes", 120)) * 60, float(cfg.get("after_minutes", 60)) * 60
+        try:
+            sales = flash_sales(now - after, now + hours * 3600 + before)
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            return {"enabled": True, "services": scope, "items": [], "error": f"không đọc được lịch flash sale: {e}"}
+        items = [{"starts": iso(s0 - before), "ends": iso(s1 + after), "sale_starts": iso(s0), "sale_ends": iso(s1),
+                  "active": s0 - before <= now <= s1 + after} for s0, s1 in sorted(sales) if s1 + after >= now]
+        return {"enabled": True, "services": scope, "items": items}
+
     # ---------------------------------------------------------------- rủi ro thay đổi (CD gọi trước khi rollout)
     @app.post("/change-risk")
     async def change_risk(request: Request):
         from datetime import datetime
 
-        from .change_risk import Change, score
+        from .change_risk import ROLLOUT, Change, score
 
         body = await request.json()
         files = [(str(f["path"]), int(f.get("lines", 0))) for f in (body.get("files") or [])][:5000]
@@ -349,8 +404,22 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                         budget[s] = min(budget.get(s, 1.0), remaining[slo])
         model = responder.store.latest_model()
         weights = model["weights"] if model else None
+        r = score(ch.features(), weights, budget=budget or None)
+        fz = change_freeze(when.timestamp() if when else responder.clock(), ch.services())
+        if fz and fz.get("active"):
+            mins = round((fz["sale_starts"] - (when.timestamp() if when else responder.clock())) / 60)
+            when_txt = f"flash sale bắt đầu sau {mins} phút" if mins > 0 else "đang trong/ngay sau flash sale"
+            if body.get("emergency"):
+                fz["bypassed"] = True
+                r["reasons"].insert(0, f"KHẨN CẤP: bỏ qua đóng băng ({when_txt}) — bắt buộc postmortem")
+                responder.store.audit(request.headers.get("x-actor", "ci"), "change_freeze_bypassed",
+                                      details={"services": fz["services"], "reason": str(body.get("reason") or "")[:500]})
+            else:
+                r["level"], r["rollout"] = "high", {**ROLLOUT["high"], "approval": "manual"}
+                r["policy"] = f"Đóng băng thay đổi: {when_txt}, chạm {', '.join(fz['services'])} — chỉ deploy khẩn cấp"
+                r["reasons"].insert(0, r["policy"])
         return {"services": ch.services(), "incidents_30d": ch.incidents_30d, "weights_source": "fitted" if model else "prior",
-                **score(ch.features(), weights, budget=budget or None)}
+                **r, "freeze": fz}
 
     @app.post("/change-risk/deploys")
     async def record_deploy(request: Request):
@@ -486,8 +555,6 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     # ---------------------------------------------------------------- dự báo dung lượng (predictive autoscaling)
     @app.get("/capacity/forecast")
     def capacity_forecast(hours: float = Query(1.0, gt=0, le=6)):
-        from datetime import datetime, timezone
-
         from .capacity import apply_events, event_uplift, forecast, recommend
         from .metrics import FORECAST_RPS, FORECAST_REPLICAS
 
@@ -501,14 +568,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         start, horizon_s = now - int(cap.get("lookback_days", 8)) * 86400, int(hours * 3600)
         past, upcoming = [], []
         try:
-            iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
-            with httpx.Client(base_url=os.getenv("PROMOTION_URL", "http://promotion:8108"), timeout=5,
-                              headers={"x-internal-token": os.getenv("INTERNAL_TOKEN", "")},
-                              transport=app.state.promotion_transport) as pc:
-                r = pc.get("/internal/flash-sales/window", params={"from": iso(start), "to": iso(now + horizon_s)})
-                r.raise_for_status()
-            for ev in r.json()["items"]:
-                se = (parse_ts(ev["startsAt"]), parse_ts(ev["endsAt"]))
+            for se in flash_sales(start, now + horizon_s):
                 (past if se[1] <= now else upcoming).append(se)
         except (httpx.HTTPError, KeyError, ValueError) as e:
             log.warning("không lấy được lịch flash sale: %s — dự báo không có biến ngoại sinh", e)

@@ -6,6 +6,8 @@ on:
     inputs:
       from: { description: Môi trường nguồn, type: choice, options: [dev, staging], default: dev }
       to: { description: Môi trường đích, type: choice, options: [staging, prod-onprem, prod-aws], default: staging }
+      emergency: { description: Bản vá khẩn cấp — bỏ qua đóng băng flash sale (có audit), type: boolean, default: false }
+      reason: { description: Lý do (bắt buộc khi khẩn cấp), type: string, default: "" }
 permissions: { contents: read }
 jobs:
   promote:
@@ -21,8 +23,27 @@ jobs:
           cp "environments/${{ inputs.to }}/images.yaml" "$RUNNER_TEMP/images-before.yaml"
           cp "environments/${{ inputs.from }}/images.yaml" "environments/${{ inputs.to }}/images.yaml"
           git diff --stat
+      - uses: actions/checkout@v4
+        if: vars.AIOPS_URL != ''
+        with: { path: app, fetch-depth: 0 }
+      - run: pip install -q pyyaml
+        if: vars.AIOPS_URL != ''
+      # Cổng đóng băng thay đổi (chỉ prod): deploy chạm đường mua hàng quanh flash sale → chặn, trừ khi khai khẩn cấp
+      - name: Cổng rủi ro thay đổi & đóng băng flash sale
+        if: vars.AIOPS_URL != '' && startsWith(inputs.to, 'prod-')
+        env:
+          REASON: ${{ inputs.reason }}   # chuỗi tự do → qua env, không nội suy thẳng vào shell (chống script injection)
+          EMERGENCY: ${{ inputs.emergency }}
+        run: |
+          set -o pipefail
+          if [ "$EMERGENCY" = "true" ] && [ -z "$REASON" ]; then echo "Khẩn cấp phải có lý do"; exit 1; fi
+          python app/scripts/ci/record_deploy.py --repo app --gate $([ "$EMERGENCY" = "true" ] && echo --emergency) \
+            --reason "$REASON" --before "$RUNNER_TEMP/images-before.yaml" \
+            --after "environments/${{ inputs.to }}/images.yaml" --url "${{ vars.AIOPS_URL }}" --token "${{ secrets.AIOPS_TOKEN }}" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: peter-evans/create-pull-request@v7
         with:
+          add-paths: environments/   # không kéo thư mục app/ (checkout repo ứng dụng) vào PR
           token: ${{ secrets.GITOPS_TOKEN }}
           branch: promote/${{ inputs.from }}-to-${{ inputs.to }}
           title: "release: promote ${{ inputs.from }} → ${{ inputs.to }}"
@@ -32,14 +53,10 @@ jobs:
             - Rollback thủ công: revert PR này.
           labels: release, ${{ inputs.to }}
       # Vòng học change-risk: ghi diff thật (tag cũ → tag mới của từng service) vào AIOps; nhãn gắn sau 2h theo RCA.
-      - uses: actions/checkout@v4
-        if: vars.AIOPS_URL != ''
-        with: { path: app, fetch-depth: 0 }
       - name: Ghi deploy vào AIOps change-risk
         if: vars.AIOPS_URL != ''
         continue-on-error: true   # AIOps chậm/sập không được chặn release
         run: |
-          pip install -q pyyaml
           python app/scripts/ci/record_deploy.py --repo app \
             --before "$RUNNER_TEMP/images-before.yaml" --after "environments/${{ inputs.to }}/images.yaml" \
             --url "${{ vars.AIOPS_URL }}" --token "${{ secrets.AIOPS_TOKEN }}" --environment "${{ inputs.to }}" \

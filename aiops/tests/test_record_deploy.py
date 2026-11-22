@@ -41,3 +41,22 @@ def test_lead_time_median():
     m = _mod()
     assert m.lead_time([], 100.0) is None
     assert m.lead_time([0, 50, 90], 100.0) == 50.0 and m.lead_time([200], 100.0) == 0.0
+
+
+def test_gate_decision():
+    m = _mod()
+    frozen = {"level": "high", "probability": 0.1, "reasons": ["Đóng băng…"], "policy": "Đóng băng thay đổi: x",
+              "freeze": {"active": True, "services": ["cart"]}}
+    assert m.gate(frozen)[0] == 2 and "CHẶN" in m.gate(frozen)[1]
+    assert m.gate({**frozen, "freeze": {"active": True, "bypassed": True}})[0] == 0
+    code, msg = m.gate({"level": "low", "probability": 0.1, "reasons": [], "freeze": {"active": False, "error": "x"}})
+    assert code == 0 and msg.startswith("CẢNH BÁO")
+    assert m.gate({"level": "low", "probability": 0.1, "reasons": [], "freeze": None})[0] == 0
+
+
+def test_gate_fails_open_when_aiops_unreachable(tmp_path, capsys):
+    m = _mod()
+    (tmp_path / "b.yaml").write_text("images: {}\n")
+    m.changes = lambda *a: (["cart"], [{"path": "services/cart/src/a.ts", "lines": 1}], [])
+    rc = m.main(["--before", str(tmp_path / "b.yaml"), "--after", str(tmp_path / "b.yaml"), "--url", "http://127.0.0.1:9", "--gate"])
+    assert rc == 0 and "fail-open" in capsys.readouterr().out

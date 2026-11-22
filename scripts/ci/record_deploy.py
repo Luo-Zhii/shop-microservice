@@ -7,6 +7,9 @@ Tag cũ không tồn tại trong lịch sử (vd sha-0000000 lúc khởi tạo) 
 Lead time (DORA) = trung vị (lúc deploy − lúc commit) của các commit mới trong khoảng đó.
 
   python scripts/ci/record_deploy.py --before old.yaml --after new.yaml --repo . --url "$AIOPS_URL" --ref "promote dev→staging"
+
+Chế độ cổng (`--gate`, chạy TRƯỚC khi mở PR promote lên prod): gửi diff tới POST /change-risk; đang đóng băng quanh flash
+sale mà không khai `--emergency` → thoát mã 2 (chặn). AIOps lỗi/không tới được → cảnh báo, cho qua (fail-open).
 """
 
 from __future__ import annotations
@@ -65,6 +68,24 @@ def lead_time(commit_ts: list[int], deployed_at: float) -> float | None:
     return round(statistics.median(max(0.0, deployed_at - t) for t in commit_ts), 1) if commit_ts else None
 
 
+def _post(url: str, path: str, body: dict, token: str) -> dict:
+    req = urllib.request.Request(url.rstrip("/") + path, data=json.dumps(body).encode(), method="POST",
+                                 headers={"content-type": "application/json", **({"authorization": f"Bearer {token}"} if token else {})})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode() or "{}")
+
+
+def gate(result: dict) -> tuple[int, str]:
+    """Kết quả /change-risk → (mã thoát, thông điệp). 2 = bị đóng băng, 0 = cho qua."""
+    fz = result.get("freeze") or {}
+    head = f"Rủi ro {result.get('level')} ({result.get('probability')}) · " + "; ".join(result.get("reasons") or [])
+    if fz.get("active") and not fz.get("bypassed"):
+        return 2, f"CHẶN — {result.get('policy')}. Chạy lại với emergency=true + lý do nếu là bản vá khẩn cấp.\n{head}"
+    if fz.get("error"):
+        return 0, f"CẢNH BÁO — {fz['error']}\n{head}"
+    return 0, head
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--before", required=True)
@@ -75,6 +96,9 @@ def main(argv=None) -> int:
     ap.add_argument("--token", default="")
     ap.add_argument("--environment", default="")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--gate", action="store_true", help="chấm rủi ro + kiểm đóng băng thay vì ghi deploy")
+    ap.add_argument("--emergency", action="store_true")
+    ap.add_argument("--reason", default="")
     a = ap.parse_args(argv)
     svcs, files, commit_ts = changes(a.repo, tags(a.before), tags(a.after))
     if not files:
@@ -85,10 +109,16 @@ def main(argv=None) -> int:
     if a.dry_run:
         print(json.dumps(body, ensure_ascii=False))
         return 0
-    req = urllib.request.Request(a.url.rstrip("/") + "/change-risk/deploys", data=json.dumps(body).encode(), method="POST",
-                                 headers={"content-type": "application/json", **({"authorization": f"Bearer {a.token}"} if a.token else {})})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        print(r.read().decode())
+    if a.gate:
+        try:
+            res = _post(a.url, "/change-risk", {"files": files, "emergency": a.emergency, "reason": a.reason}, a.token)
+        except (OSError, ValueError) as e:   # URLError/HTTPError là OSError
+            print(f"CẢNH BÁO — không gọi được AIOps ({e}); cho qua (fail-open)")
+            return 0
+        code, msg = gate(res)
+        print(msg)
+        return code
+    print(json.dumps(_post(a.url, "/change-risk/deploys", body, a.token), ensure_ascii=False))
     return 0
 
 
