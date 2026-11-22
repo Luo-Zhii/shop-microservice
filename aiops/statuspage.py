@@ -118,3 +118,37 @@ def build(store, now: float, components: list[dict], synthetic_failed_services: 
 
 def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def month_sla(store, components: list[dict], sla: dict, period: str, now: float) -> dict:
+    """Uptime cả tháng (giờ VN) của các nhóm chức năng có cam kết SLA → bậc hoàn phí. Tháng chưa kết thúc: `final=False`."""
+    from calendar import monthrange
+
+    y, m = (int(x) for x in period.split("-"))
+    first = datetime(y, m, 1, tzinfo=VN)
+    ndays = monthrange(y, m)[1]
+    end = first + timedelta(days=ndays)
+    final = now >= end.timestamp()
+    upto = min(now, end.timestamp() - 1)
+    days_win = (_day(upto) - first.date()).days + 1
+    incidents = store.list_incidents(since=first.timestamp() - 7 * 86400, limit=10000)
+    impacts = {}
+    for i in incidents:
+        ups = store.status_updates(i["id"])
+        lv = next((u["impact"] for u in reversed(ups) if u.get("impact")), None)
+        if lv:
+            impacts[i["id"]] = lv
+    items = []
+    for c in components:
+        rule = sla.get(c["id"])
+        if not rule:
+            continue
+        days = uptime_days(incidents, set(c.get("services") or []), upto, days_win, impacts)
+        up = sum(d["uptime"] for d in days) / len(days) if days else 1.0
+        tiers = sorted(((float(a), float(b)) for a, b in rule.get("credits", [])), key=lambda t: t[0])
+        pct = next((b for a, b in tiers if up < a), 0.0)        # bậc thấp nhất mà uptime nằm dưới
+        target = float(rule["target"])
+        items.append({"component": c["id"], "name": c["name"], "target": target, "uptime": round(up, 6),
+                      "met": up >= target, "credit_pct": pct if up < target else 0.0,
+                      "minutes_lost": round((1 - up) * days_win * 1440, 1)})
+    return {"period": period, "final": final, "days_counted": days_win, "items": items}

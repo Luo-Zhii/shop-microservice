@@ -134,3 +134,42 @@ export async function registerConsumers(bus: EventBus, pool: Pool, r: Rates, log
     await handleEvent(pool, event as EventEnvelope<any>, r, log);
   });
 }
+
+
+/**
+ * Hoàn phí SLA cho người bán khi uptime tháng của sàn dưới cam kết (AIOps tính uptime từ trang trạng thái, gọi nội bộ).
+ * Cơ sở: doanh thu hoa hồng CHƯA THUẾ của từng shop trong kỳ (PS Có − PS Nợ TK 5113, trừ phí lưu kho `storage:`).
+ * Mỗi shop: Nợ 5213 (giảm giá dịch vụ, chưa thuế) / Nợ 33311 (giảm thuế GTGT đầu ra) / Có 331 (phải trả shop).
+ * Một bút toán cho cả kỳ, khử trùng theo `sla:<kỳ>:<nhóm chức năng>` — gọi lại không ghi đôi.
+ */
+export async function postSlaCredit(c: PoolClient, input: { period: string; component: string; pct: number; uptime: number;
+  target: number; vatRate: number; actor: string }, today: string) {
+  if (!(input.pct > 0 && input.pct <= 1)) throw new Error('tỉ lệ hoàn phí phải trong (0, 1]');
+  const { rows } = await c.query<{ shop: string; net: string }>(
+    `SELECT l.party_id AS shop, SUM(l.credit) - SUM(l.debit) AS net
+       FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+      WHERE l.account = '5113' AND l.party_type = 'shop' AND e.period = $1 AND (l.memo IS NULL OR l.memo NOT LIKE 'storage:%')
+      GROUP BY l.party_id HAVING SUM(l.credit) - SUM(l.debit) > 0 ORDER BY l.party_id`, [input.period]);
+  const lines: LineInput[] = [];
+  const perShop: { shopId: string; commissionNet: number; creditNet: number; vat: number; total: number }[] = [];
+  for (const r of rows) {
+    const commissionNet = Number(r.net);
+    const creditNet = Math.round(commissionNet * input.pct);
+    const vat = Math.round(creditNet * input.vatRate);
+    if (creditNet <= 0) continue;
+    const memo = `sla:${input.period}:${input.component}`;
+    lines.push({ account: '5213', debit: creditNet, partyType: 'shop', partyId: r.shop, memo });
+    if (vat > 0) lines.push({ account: '33311', debit: vat, memo });
+    lines.push({ account: '331', credit: creditNet + vat, partyType: 'shop', partyId: r.shop, memo });
+    perShop.push({ shopId: r.shop, commissionNet, creditNet, vat, total: creditNet + vat });
+  }
+  if (!lines.length) return { created: false, entry: null, shops: [] as typeof perShop, total: 0 };
+  const pctTxt = `${Math.round(input.pct * 100)}%`;
+  const { entry, created } = await postEntry(c, {
+    date: today, source: 'sla', sourceRef: `sla:${input.period}:${input.component}`, eventType: 'sla.credit',
+    description: `Hoàn phí SLA kỳ ${input.period} (${input.component}): uptime ${(input.uptime * 100).toFixed(3)}% < cam kết ` +
+      `${(input.target * 100).toFixed(1)}% → hoàn ${pctTxt} hoa hồng cho ${perShop.length} shop`,
+    createdBy: input.actor, lines,
+  }, today);
+  return { created, entry, shops: perShop, total: perShop.reduce((a, s) => a + s.total, 0) };
+}

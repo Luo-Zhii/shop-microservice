@@ -15,7 +15,7 @@ export interface LineInput {
 
 export interface EntryInput {
   date: string; // YYYY-MM-DD
-  source: 'kafka' | 'manual' | 'payout' | 'reversal';
+  source: 'kafka' | 'manual' | 'payout' | 'reversal' | 'sla';
   sourceRef: string;
   eventType?: string;
   description: string;

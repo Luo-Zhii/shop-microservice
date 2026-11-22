@@ -21,7 +21,7 @@ async function main() {
   await registerConsumers(bus, pool, {
     commissionRate: cfg.COMMISSION_RATE, vatRate: cfg.VAT_RATE, invoiceSeries: cfg.INVOICE_SERIES, tz: cfg.TIMEZONE,
   }, log);
-  registerRoutes(app, { pool, auth, tz: cfg.TIMEZONE });
+  registerRoutes(app, { pool, auth, tz: cfg.TIMEZONE, vatRate: cfg.VAT_RATE });
 
   svc.addReadiness('postgres', () => pool.query('SELECT 1'));
   svc.addReadiness('kafka', () => {

@@ -226,7 +226,47 @@ function Slo() {
             ]} />
         )}
       </QueryView>
+      <SellerSla />
     </>
+  );
+}
+
+interface SlaItem { component: string; name: string; target: number; uptime: number; met: boolean; credit_pct: number; minutes_lost: number }
+
+/** Cam kết SLA với người bán: uptime tháng vs hợp đồng → hoàn % phí hoa hồng, ghi sổ cái (5213/33311/331) khi tháng đã chốt. */
+function SellerSla() {
+  const qc = useQueryClient();
+  const months = Array.from({ length: 3 }, (_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); return d.toISOString().slice(0, 7); });
+  const [period, setPeriod] = useState(months[1]);
+  const q = useQuery({ queryKey: ['aiops-sla', period], retry: false, queryFn: () => api.get<{ period: string; final: boolean; items: SlaItem[] }>('/aiops/sla/report', { period }) });
+  const apply = useMutation({
+    mutationFn: () => api.post<{ applied: { component: string; total: number; entryNo: string | null; created: boolean }[] }>(`/aiops/sla/credits/${period}/apply`),
+    onSuccess: (r) => {
+      const total = r.applied.reduce((a, x) => a + x.total, 0);
+      toast.success(r.applied.length ? `Đã ghi hoàn phí ${formatVND(total)} (${r.applied.map((x) => x.entryNo).join(', ')})` : 'Không có nhóm nào dưới cam kết');
+      void qc.invalidateQueries({ queryKey: ['aiops-sla', period] });
+    },
+  });
+  if (!q.data?.items.length) return null;
+  const d = q.data;
+  const due = d.items.some((i) => !i.met && i.credit_pct > 0);
+  return (
+    <section className="mt-6">
+      <SectionTitle>Cam kết SLA với người bán</SectionTitle>
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <Tabs className="min-w-0 flex-1" value={period} onChange={setPeriod} items={months.map((m) => ({ value: m, label: `Tháng ${m.slice(5)}/${m.slice(0, 4)}` }))} />
+        <Button onClick={() => apply.mutate()} disabled={!d.final || !due || apply.isPending}>{d.final ? 'Ghi hoàn phí vào sổ' : 'Tháng chưa chốt'}</Button>
+      </div>
+      <DataTable rows={d.items} rowKey={(i) => i.component}
+        columns={[
+          { key: 'name', header: 'Nhóm chức năng', primary: true, cell: (i) => <span className="break-words">{i.name}</span> },
+          { key: 'st', header: 'Trạng thái', badge: true, cell: (i) => (i.met ? <Badge tone="success">Đạt cam kết</Badge> : <Badge tone="danger">Hoàn {Math.round(i.credit_pct * 100)}% hoa hồng</Badge>) },
+          { key: 'up', header: 'Uptime', align: 'right', cell: (i) => <b className={i.met ? '' : 'text-danger'}>{(i.uptime * 100).toFixed(3)}%</b> },
+          { key: 'tg', header: 'Cam kết', align: 'right', cell: (i) => (i.target * 100).toFixed(1) + '%' },
+          { key: 'lost', header: 'Phút gián đoạn', align: 'right', hideOnMobile: true, cell: (i) => formatNumber(Math.round(i.minutes_lost)) },
+        ]} />
+      <p className="mt-2 text-xs text-muted">Uptime tính như trang trạng thái (gián đoạn 100%, một phần 30%). Hoàn phí = % × hoa hồng chưa thuế của từng shop trong kỳ; ghi Nợ 5213 + 33311 / Có 331 — gọi lại không ghi đôi.</p>
+    </section>
   );
 }
 

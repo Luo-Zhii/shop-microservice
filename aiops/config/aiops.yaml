@@ -160,6 +160,10 @@ status_page:
     - {id: delivery, name: "Giao hàng & kho", services: [shipping, warehouse]}
     - {id: account, name: "Tài khoản & thông báo", services: [identity, user-profile, notification]}
     - {id: seller, name: "Kênh người bán", services: [seller, accounting]}
+  # Cam kết SLA với người bán (hợp đồng): uptime tháng < ngưỡng → hoàn % phí hoa hồng (bậc thấp nhất mà uptime nằm dưới)
+  sla:
+    checkout: {target: 0.995, credits: [[0.995, 0.10], [0.99, 0.25], [0.95, 0.50]]}
+    seller: {target: 0.99, credits: [[0.99, 0.05], [0.95, 0.15]]}
 
 # Right-sizing (rightsizing.py): đơn giá giống OpenCost mặc định (on-prem: chi phí khấu hao quy đổi), cần ≥ 3 ngày dữ liệu
 finops:

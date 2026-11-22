@@ -18,6 +18,7 @@ POST /change-risk/deploys · POST /change-risk/fit   ghi deploy thật (promote.
 GET  /audit/ledger                     kiểm toán sổ cái (Benford, số tròn, ngoài giờ, trùng chi, TK nhạy cảm)
 GET  /capacity/forecast?hours          dự báo rps Holt-Winters → replica đề xuất + gauge cho KEDA
 GET  /finops/rightsizing · POST /finops/rightsizing/{svc}/propose-pr  requests vs dùng thật 7 ngày → đề xuất + PR GitOps
+GET  /sla/report?period · POST /sla/credits/{period}/apply  uptime tháng vs cam kết SLA người bán → hoàn phí vào sổ cái
 GET  /synthetic/status                 hành trình mua hàng tổng hợp theo vị trí (on-prem/AWS), bước hỏng, p95
 GET  /slo/status                       trạng thái SLO: mục tiêu, burn rate, budget còn lại (Sloth)
 GET  /platform/summary                 sự cố mở, chi phí/đơn, LCP p75, error budget (trang Tổng quan admin)
@@ -31,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 
@@ -345,6 +347,49 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     @app.get("/incidents/{incident_id}/status-updates")
     def list_status_updates(incident_id: str):
         return {"items": responder.store.status_updates(incident_id)}
+
+    def _period_default() -> str:
+        from datetime import datetime, timedelta, timezone
+
+        d = datetime.fromtimestamp(responder.clock(), timezone(timedelta(hours=7))).replace(day=1) - timedelta(days=1)
+        return d.strftime("%Y-%m")                       # mặc định: tháng trước (đã chốt)
+
+    @app.get("/sla/report")
+    def sla_report(period: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")):
+        """Uptime tháng theo nhóm chức năng (cùng cách tính trang trạng thái) so với cam kết SLA với người bán."""
+        from .statuspage import month_sla
+
+        sp = settings.raw.get("status_page") or {}
+        return month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, period or _period_default(),
+                         responder.clock())
+
+    @app.post("/sla/credits/{period}/apply")
+    def sla_apply(period: str, request: Request):
+        """Ghi hoàn phí SLA vào sổ cái (kế toán /internal/sla-credits, idempotent). Chỉ khi tháng đã kết thúc."""
+        from .statuspage import month_sla
+
+        if not re.fullmatch(r"\d{4}-\d{2}", period):
+            return err(400, "VALIDATION_ERROR", "kỳ dạng YYYY-MM")
+        sp = settings.raw.get("status_page") or {}
+        rep = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, period, responder.clock())
+        if not rep["final"]:
+            return err(409, "PERIOD_OPEN", "tháng chưa kết thúc — không hoàn phí trên số liệu dở dang")
+        actor = request.headers.get("x-actor", "api")
+        url, tok = os.getenv("ACCOUNTING_URL", "http://accounting:8115"), os.getenv("INTERNAL_TOKEN", "")
+        results = []
+        with httpx.Client(base_url=url, timeout=15, headers={"x-internal-token": tok},
+                          transport=app.state.accounting_transport) as ac:
+            for it in rep["items"]:
+                if it["met"] or it["credit_pct"] <= 0:
+                    continue
+                r = ac.post("/internal/sla-credits", json={"period": period, "component": it["component"], "pct": it["credit_pct"],
+                                                           "uptime": it["uptime"], "target": it["target"], "actor": f"aiops:{actor}"})
+                if r.status_code >= 400:
+                    return err(502, "UPSTREAM_ERROR", f"kế toán từ chối {it['component']}: HTTP {r.status_code} {r.text[:200]}")
+                results.append({"component": it["component"], **r.json()})
+        responder.store.audit(actor, "sla_credits_applied", details={"period": period,
+                                                                     "total": sum(x.get("total", 0) for x in results)})
+        return {"period": period, "applied": results, "report": rep}
 
     @app.get("/status/public")
     def public_status():

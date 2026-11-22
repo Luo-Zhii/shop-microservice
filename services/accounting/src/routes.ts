@@ -1,4 +1,5 @@
 import {
+  badRequest,
   conflict,
   newId,
   notFound,
@@ -11,11 +12,14 @@ import {
   type Pool,
 } from '@shopnow/platform';
 import { localDate, periodOf, postEntry, reverseEntry, trialBalance, verifyChain, withLines, type EntryRow } from './ledger';
+import { postSlaCredit } from './posting';
 
 export interface RouteDeps {
   pool: Pool;
   auth: Auth;
   tz: string;
+  /** thuế suất GTGT dịch vụ hoa hồng (mặc định 10%) — dùng khi hoàn phí SLA */
+  vatRate?: number;
 }
 
 const period = z.string().regex(/^\d{4}-\d{2}$/, 'kỳ dạng YYYY-MM');
@@ -400,6 +404,18 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     }, today()));
     reply.code(created ? 201 : 200);
     return entry;
+  });
+
+  /** AIOps gọi khi uptime tháng dưới cam kết SLA → hoàn phí hoa hồng cho người bán (idempotent theo kỳ + nhóm chức năng). */
+  app.post('/internal/sla-credits', { preHandler: auth.internalOnly }, async (req, reply) => {
+    const b = z.object({
+      period, component: z.string().regex(/^[a-z][a-z0-9-]{1,30}$/), pct: z.number().gt(0).max(1),
+      uptime: z.number().min(0).max(1), target: z.number().gt(0).max(1), actor: z.string().min(1).max(200),
+    }).parse(req.body);
+    if (b.uptime >= b.target) throw badRequest('Uptime đạt cam kết — không có hoàn phí');
+    const r = await withTx(pool, (c) => postSlaCredit(c, { ...b, vatRate: deps.vatRate ?? 0.1 }, today()));
+    reply.code(r.created ? 201 : 200);
+    return { created: r.created, entryNo: r.entry?.entry_no ?? null, total: r.total, shops: r.shops };
   });
 
   /** Luồng dữ liệu cho bộ kiểm toán AIOps (Benford, bút toán lạ…). */
