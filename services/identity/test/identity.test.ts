@@ -139,8 +139,16 @@ test('refresh xoay vòng; dùng lại token cũ → thu hồi cả family', asyn
   assert.equal((await post('/auth/refresh', { refreshToken: 'x'.repeat(43) })).statusCode, 401);
 });
 
+async function loginMetrics() {
+  const text = (await app.inject({ method: 'GET', url: '/metrics' })).body;
+  const out: Record<string, number> = {};
+  for (const m of text.matchAll(/^auth_logins_total\{[^}]*result="(\w+)"[^}]*\} (\d+)/gm)) out[m[1]] = Number(m[2]);
+  return out;
+}
+
 test('sai mật khẩu 5 lần → khoá 15 phút, mật khẩu đúng cũng bị chặn', async () => {
   await registerVerified('lock@test.local');
+  const before = await loginMetrics();
   for (let i = 1; i <= 5; i++) {
     const r = await login('lock@test.local', 'SaiMatKhau1');
     assert.equal(r.statusCode, i < 5 ? 401 : 429, `lần ${i}: ${r.body}`);
@@ -153,6 +161,10 @@ test('sai mật khẩu 5 lần → khoá 15 phút, mật khẩu đúng cũng b�
   assert.equal((await login('lock@test.local')).statusCode, 200);
   // Email không tồn tại → 401 chung chung
   assert.equal((await login('khongco@test.local')).statusCode, 401);
+  // metric cho AIOps: đếm đủ 5 lần sai (kể cả lần thứ 5 bị khoá ngay), 1 lần bị chặn, 1 thành công, 1 email lạ
+  const after = await loginMetrics();
+  const d = (k: string) => (after[k] ?? 0) - (before[k] ?? 0);
+  assert.deepEqual([d('bad_password'), d('locked'), d('success'), d('unknown_user')], [5, 1, 1, 1]);
 });
 
 test('quên mật khẩu → OTP → đặt lại, phiên cũ bị thu hồi', async () => {

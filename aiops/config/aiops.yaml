@@ -60,6 +60,8 @@ features:
     label_replace(histogram_quantile(0.75, sum by (le) (rate(web_vitals_seconds_bucket{name="LCP"}[{window}]))),
     "service", "web", "", "")
   jserr: label_replace(sum(rate(web_errors_total[{window}])), "service", "web", "", "")
+  # KPI bảo mật: đăng nhập thất bại/giây (identity auth_logins_total, nhãn chỉ là loại kết quả)
+  auth_fail: label_replace(sum(rate(auth_logins_total{result!="success"}[{window}])), "service", "identity", "", "")
   # KPI kinh doanh: đơn tạo/giây (giảm là xấu), tỉ lệ thanh toán lỗi (tăng là xấu)
   orders: label_replace(sum(rate(orders_created_total[{window}])), "service", "order", "", "")
   pay_fail: >-
@@ -68,6 +70,8 @@ features:
 
 # KPI có hướng — detection/kpi.py chấm robust z theo chiều xấu, gộp vào điểm bất thường của service
 kpis:
+  identity:
+    auth_fail: {direction: up, min_level: 0.5}   # đăng nhập thất bại/giây — dò mật khẩu, credential stuffing
   web:
     lcp: {direction: up, min_level: 2.5}     # chỉ tính khi LCP p75 vượt ngưỡng "good"
     jserr: {direction: up}

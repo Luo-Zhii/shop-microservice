@@ -95,3 +95,19 @@ def test_kpi_anomalies_business_and_ux():
     up_orders[-5:] = 20
     assert kpi_scores({"orders": up_orders}, {"orders": {"direction": "down"}}, slice(0, 100))[0] == 0.0
     assert robust_z(np.full(50, 3.0), slice(0, 40)) == 0.0   # chuỗi phẳng: không chia cho 0
+
+
+def test_kpi_auth_failure_spike_flags_identity():
+    """Credential stuffing: đăng nhập thất bại/giây tăng vọt → identity bất thường; vài người gõ sai (dưới 0.5/s) thì không."""
+    from aiops.detection.kpi import kpi_scores
+
+    s = load_settings()
+    spec = s.raw["kpis"]["identity"]
+    rng = np.random.default_rng(9)
+    calm = np.abs(0.05 + rng.normal(0, 0.01, 120))
+    attack = calm.copy()
+    attack[-5:] = 12.0
+    assert kpi_scores({"auth_fail": attack}, spec, slice(0, 100))[0] >= 0.9
+    noisy = calm.copy()
+    noisy[-5:] = 0.3                                   # gấp 6 lần nền nhưng vẫn dưới ngưỡng tuyệt đối 0.5/s
+    assert kpi_scores({"auth_fail": noisy}, spec, slice(0, 100))[0] == 0.0

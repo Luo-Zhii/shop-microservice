@@ -4,6 +4,7 @@ import {
   AppError,
   badRequest,
   conflict,
+  counter,
   forbidden,
   notFound,
   parsePage,
@@ -160,16 +161,24 @@ export function registerRoutes(app: FastifyInstance, deps: IdentityDeps) {
   });
 
   // ---------------- Đăng nhập / refresh / đăng xuất ----------------
+  // Tín hiệu bảo mật cho AIOps (KPI `auth_fail`): dò mật khẩu / credential stuffing làm tỉ lệ thất bại tăng vọt.
+  // Nhãn chỉ là loại kết quả — không gắn email/IP vào metric (tránh lộ dữ liệu + bùng nổ cardinality).
+  const logins = counter('auth_logins_total', 'Kết quả đăng nhập theo loại', ['result']);
   app.post('/auth/login', async (req) => {
     const b = z.object({ email, password: z.string().min(1).max(128), totp: totpCode.optional() }).parse(req.body);
     const u = await findByEmail(pool, b.email);
     if (!u || !u.password_hash) {
       await verifyHash(await DUMMY_HASH, b.password).catch(() => false);
+      logins.inc({ result: 'unknown_user' });
       throw unauthorized('Email hoặc mật khẩu không đúng');
     }
     assertActive(u);
-    if (u.locked_until && u.locked_until > new Date()) throw lockedError(u.locked_until);
+    if (u.locked_until && u.locked_until > new Date()) {
+      logins.inc({ result: 'locked' });
+      throw lockedError(u.locked_until);
+    }
     if (!(await verifyHash(u.password_hash, b.password).catch(() => false))) {
+      logins.inc({ result: 'bad_password' }); // trước registerLoginFailure: lần thứ 5 ném lỗi khoá, không được bỏ sót
       await registerLoginFailure(u.id);
       throw unauthorized('Email hoặc mật khẩu không đúng');
     }
@@ -177,10 +186,12 @@ export function registerRoutes(app: FastifyInstance, deps: IdentityDeps) {
     if (u.totp_enabled) {
       if (!b.totp) throw new AppError('UNAUTHORIZED', 'Cần nhập mã xác thực 2 lớp (2FA)', { reason: 'TOTP_REQUIRED' });
       if (!(await consumeTotp(u, b.totp))) {
+        logins.inc({ result: 'totp_invalid' });
         await registerLoginFailure(u.id);
         throw new AppError('UNAUTHORIZED', 'Mã 2FA không đúng', { reason: 'TOTP_INVALID' });
       }
     }
+    logins.inc({ result: 'success' });
     return withTx(pool, async (c) => {
       await c.query('UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1', [u.id]);
       return issueSession(c, keys, u, sessionOpts(req));
