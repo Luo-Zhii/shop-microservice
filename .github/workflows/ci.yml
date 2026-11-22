@@ -140,6 +140,19 @@ jobs:
       - run: pnpm --filter @shopnow/web exec tsc --noEmit
       - run: pnpm --filter @shopnow/web build
 
+  scorecard:
+    # Service scorecard / production readiness (Bronze/Silver/Gold) — chấm từ chính repo app + repo GitOps mỗi lần chạy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: {repository: "${{ github.repository_owner }}/shop-gitops", path: shop-gitops}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.13"}
+      - run: pip install pyyaml==6.0.2
+      - name: Chấm và ghi vào tóm tắt pipeline
+        run: python -m aiops.scorecard --gitops shop-gitops --out scorecard.md && cat scorecard.md >> "$GITHUB_STEP_SUMMARY"
+
   security:
     runs-on: ubuntu-latest
     permissions:

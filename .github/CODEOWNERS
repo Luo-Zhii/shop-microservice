@@ -1,0 +1,12 @@
+# Owner theo miền (scorecard luật "owner"; branch protection: Require review from Code Owners).
+# Repo cá nhân nên mọi miền cùng một owner — khi có team, tách từng dòng sang @org/team tương ứng.
+*                          @Luo-Zhii
+/services/order/           @Luo-Zhii
+/services/payment/         @Luo-Zhii
+/services/accounting/      @Luo-Zhii
+/services/warehouse/       @Luo-Zhii
+/services/inventory/       @Luo-Zhii
+/services/identity/        @Luo-Zhii
+/aiops/                    @Luo-Zhii
+/.github/                  @Luo-Zhii
+/packages/                 @Luo-Zhii
