@@ -395,6 +395,15 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         d = datetime.fromtimestamp(responder.clock(), timezone(timedelta(hours=7))).replace(day=1) - timedelta(days=1)
         return d.strftime("%Y-%m")                       # mặc định: tháng trước (đã chốt)
 
+    @app.get("/slo/suggest")
+    def slo_suggest():
+        """Gợi ý mục tiêu SLO availability từ 28 ngày dữ liệu; chỉ ra SLO quá chặt / quá lỏng / chưa có (kèm YAML Sloth)."""
+        from .slo_suggest import analyze
+
+        if responder.prom is None:
+            return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
+        return analyze(responder.prom, responder.clock(), ((settings.raw.get("error_budget") or {}).get("slos") or {}))
+
     @app.get("/sla/report")
     def sla_report(period: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")):
         """Uptime tháng theo nhóm chức năng (cùng cách tính trang trạng thái) so với cam kết SLA với người bán."""

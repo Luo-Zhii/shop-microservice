@@ -276,6 +276,7 @@ function Slo() {
         )}
       </QueryView>
       <SellerSla />
+      <SloSuggestions />
     </>
   );
 }
@@ -315,6 +316,35 @@ function SellerSla() {
           { key: 'lost', header: 'Phút gián đoạn', align: 'right', hideOnMobile: true, cell: (i) => formatNumber(Math.round(i.minutes_lost)) },
         ]} />
       <p className="mt-2 text-xs text-muted">Uptime tính như trang trạng thái (gián đoạn 100%, một phần 30%). Hoàn phí = % × hoa hồng chưa thuế của từng shop trong kỳ; ghi Nợ 5213 + 33311 / Có 331 — gọi lại không ghi đôi.</p>
+    </section>
+  );
+}
+
+interface SloSuggestion { service: string; days: number; achieved: number | null; daily_p10: number | null; current: number | null; suggested: number | null; verdict: 'too_strict' | 'too_loose' | 'no_slo' | 'ok' | 'insufficient'; snippet: string | null }
+const VERDICT: Record<SloSuggestion['verdict'], { label: string; tone: Tone }> = {
+  too_strict: { label: 'Quá chặt', tone: 'danger' }, no_slo: { label: 'Chưa có SLO', tone: 'warning' }, too_loose: { label: 'Quá lỏng', tone: 'info' },
+  ok: { label: 'Hợp lý', tone: 'success' }, insufficient: { label: 'Thiếu dữ liệu', tone: 'neutral' },
+};
+
+/** Gợi ý mục tiêu SLO từ 28 ngày dữ liệu: bậc số 9 cao nhất mà 90% số ngày đã đạt. */
+function SloSuggestions() {
+  const q = useQuery({ queryKey: ['aiops-slo-suggest'], retry: false, queryFn: () => api.get<{ items: SloSuggestion[] }>('/aiops/slo/suggest') });
+  if (!q.data?.items.length) return null;
+  const p = (v: number | null) => (v == null ? '—' : (v * 100).toFixed(v >= 0.999 ? 3 : 2) + '%');
+  const copy = (txt: string) => { void navigator.clipboard?.writeText(txt).then(() => toast.success('Đã chép YAML Sloth'), () => toast.error('Không chép được')); };
+  return (
+    <section className="mt-6">
+      <SectionTitle>Đề xuất mục tiêu SLO (28 ngày)</SectionTitle>
+      <p className="-mt-2 mb-3 text-sm text-muted">Đề xuất = bậc số 9 cao nhất mà ≥ 90% số ngày đã đạt — mục tiêu theo năng lực thật, tránh SLO đốt budget liên tục hoặc không bao giờ dùng tới.</p>
+      <DataTable rows={q.data.items} rowKey={(i) => i.service}
+        columns={[
+          { key: 'svc', header: 'Service', primary: true, cell: (i) => <span className="font-mono text-sm">{i.service}</span> },
+          { key: 'v', header: 'Kết luận', badge: true, cell: (i) => <Badge tone={VERDICT[i.verdict].tone}>{VERDICT[i.verdict].label}</Badge> },
+          { key: 'ach', header: 'Thực tế', align: 'right', cell: (i) => p(i.achieved) },
+          { key: 'cur', header: 'Hiện tại → Đề xuất', align: 'right', cell: (i) => <span>{p(i.current)} → <b>{p(i.suggested)}</b></span> },
+          { key: 'p10', header: 'Ngày xấu (p10)', align: 'right', hideOnMobile: true, cell: (i) => p(i.daily_p10) },
+          { key: 'yaml', header: '', cell: (i) => (i.snippet ? <Button size="sm" variant="outline" onClick={() => copy(i.snippet!)}>Chép YAML</Button> : null) },
+        ]} />
     </section>
   );
 }
