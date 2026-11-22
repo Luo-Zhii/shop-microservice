@@ -181,7 +181,7 @@ export function ShopFooter() {
     <footer className="mt-10 hidden border-t border-border bg-surface md:block">
       <div className="mx-auto grid max-w-7xl grid-cols-4 gap-6 px-4 py-8 text-sm text-muted">
         <div className="space-y-2"><Logo /><p>Sàn thương mại điện tử nhiều người bán.</p></div>
-        <div className="space-y-2"><p className="font-medium text-fg">Chăm sóc khách hàng</p><p>Trung tâm trợ giúp</p><p>Chính sách đổi trả</p></div>
+        <div className="space-y-2"><p className="font-medium text-fg">Chăm sóc khách hàng</p><p>Trung tâm trợ giúp</p><p>Chính sách đổi trả</p><Link href="/status" className="block hover:text-primary">Trạng thái hệ thống</Link></div>
         <div className="space-y-2"><p className="font-medium text-fg">Bán hàng</p><Link href="/seller" className="block hover:text-primary">Kênh người bán</Link></div>
         <div className="space-y-2"><p className="font-medium text-fg">Thanh toán</p><p>COD · VNPay</p></div>
       </div>

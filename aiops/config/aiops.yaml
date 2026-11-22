@@ -151,6 +151,16 @@ error_budget:
     ai-service-availability: [ai-service]
 
 # Dự báo dung lượng (GET /capacity/forecast) — rps_per_pod khớp keda.rpsPerPod của chart
+# Trang trạng thái công khai (statuspage.py): nhóm chức năng khách nhìn thấy ← service nội bộ (không lộ tên service)
+status_page:
+  components:
+    - {id: browse, name: "Duyệt & tìm kiếm sản phẩm", services: [web, api-gateway, catalog, search, review, ai-service]}
+    - {id: cart, name: "Giỏ hàng & khuyến mãi", services: [cart, promotion, inventory]}
+    - {id: checkout, name: "Đặt hàng & thanh toán", services: [order, payment]}
+    - {id: delivery, name: "Giao hàng & kho", services: [shipping, warehouse]}
+    - {id: account, name: "Tài khoản & thông báo", services: [identity, user-profile, notification]}
+    - {id: seller, name: "Kênh người bán", services: [seller, accounting]}
+
 # Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
 business:
   default_aov_vnd: 350000

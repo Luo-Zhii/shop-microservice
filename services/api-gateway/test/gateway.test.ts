@@ -173,6 +173,14 @@ test('AIOps qua gateway: chỉ admin; MCP/webhook không mở ra ngoài; x-actor
   const ok = await gw.inject({ method: 'GET', url: '/api/aiops/incidents', headers: { authorization: `Bearer ${admin}`, 'x-actor': 'gia-mao' } });
   assert.equal(ok.statusCode, 200);
   assert.match(ok.json().headers['x-actor'], /@test\.local$/);
+  // trang trạng thái công khai: GET đúng đường thì không cần token; biến thể / phương thức khác vẫn bị chặn
+  const pub = await gw.inject({ method: 'GET', url: '/api/aiops/status/public' });
+  assert.equal(pub.statusCode, 200);
+  assert.equal(pub.json().url, '/status/public');
+  for (const [method, url] of [['POST', '/api/aiops/status/public'], ['GET', '/api/aiops/status/public/../../incidents'],
+    ['GET', '/api/aiops/status%2Fpublic'], ['GET', '/api/aiops/status/public/x']] as const) {
+    assert.equal((await gw.inject({ method, url })).statusCode, 401, `${method} ${url}`);
+  }
   for (const url of ['/api/aiops/mcp', '/api/aiops/webhooks/alertmanager', '/api/aiops/metrics']) {
     assert.equal((await gw.inject({ method: 'POST', url, headers: { authorization: `Bearer ${admin}` } })).statusCode, 403, url);
   }

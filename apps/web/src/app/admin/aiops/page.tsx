@@ -5,9 +5,10 @@ import { Bot, CheckCircle2, FileText, GitPullRequest, ShieldAlert, Siren, Snowfl
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
-import { Badge, Button, Card, EmptyState, KV, PageTitle, QueryView, SectionTitle, Sheet, Tabs } from '@/components/ui';
+import { Badge, Button, Card, EmptyState, Field, Input, KV, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
 import { api } from '@/lib/api';
 import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone } from '@/lib/format';
+import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
 
 interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; root_causes?: { service: string; score: number }[] }
@@ -63,6 +64,71 @@ function BusinessImpact({ id }: { id: string }) {
       <p className="mt-2 text-xs text-muted break-words">
         {d.ongoing && 'Sự cố chưa đóng — số còn tăng. '}Độ tin cậy {d.confidence === 'low' ? 'thấp' : 'trung bình'}: {d.note}. Ước lượng để ưu tiên đầu tư độ tin cậy, không ghi sổ kế toán.
       </p>
+    </section>
+  );
+}
+
+interface StatusUpdate { id: string; status: Phase; impact: StatusLevel | null; title: string | null; message: string; author: string; created_at: number }
+const TEMPLATE: Record<Phase, string> = {
+  investigating: 'Chúng tôi đang ghi nhận một số khách hàng gặp khó khăn khi sử dụng chức năng này và đang khẩn trương kiểm tra.',
+  identified: 'Chúng tôi đã xác định được nguyên nhân và đang triển khai biện pháp khắc phục.',
+  monitoring: 'Biện pháp khắc phục đã được áp dụng. Chúng tôi đang tiếp tục theo dõi để đảm bảo hệ thống ổn định.',
+  resolved: 'Sự cố đã được khắc phục hoàn toàn. Xin lỗi quý khách vì sự bất tiện.',
+};
+
+/** Giao tiếp sự cố với khách (trang /status): người trực viết — không tự đẩy alert thô ra ngoài. */
+function PublicComms({ incident }: { incident: Incident }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['aiops-status-updates', incident.id], queryFn: () => api.get<{ items: StatusUpdate[] }>(`/aiops/incidents/${incident.id}/status-updates`) });
+  const [phase, setPhase] = useState<Phase>('investigating');
+  const [impact, setImpact] = useState<StatusLevel>(incident.severity === 'critical' ? 'major_outage' : 'degraded_performance');
+  const [title, setTitle] = useState('');
+  const [message, setMessage] = useState('');
+  const items = q.data?.items ?? [];
+  const first = items.length === 0;
+  const post = useMutation({
+    mutationFn: () => api.post(`/aiops/incidents/${incident.id}/status-updates`, { status: phase, impact, message, ...(first ? { title } : {}) }),
+    onSuccess: () => { toast.success('Đã đăng lên trang trạng thái'); setMessage(''); void qc.invalidateQueries({ queryKey: ['aiops-status-updates', incident.id] }); },
+  });
+  return (
+    <section className="mb-4">
+      <SectionTitle action={<a href="/status" target="_blank" rel="noreferrer" className="text-sm text-primary underline">Xem /status</a>}>Thông báo công khai</SectionTitle>
+      {items.length > 0 && (
+        <ol className="mb-3 flex flex-col gap-2 border-l-2 border-border pl-3">
+          {[...items].reverse().map((u) => (
+            <li key={u.id} className="text-sm">
+              <p className="break-words"><b>{PHASE[u.status]}</b>{u.impact && ` · ${STATUS_LEVEL[u.impact].label}`} — {u.message}</p>
+              <p className="text-xs text-muted break-all">{u.author}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      <Card className="flex flex-col gap-3 p-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Field label="Giai đoạn" htmlFor="pc-phase">
+            <Select id="pc-phase" value={phase} onChange={(e) => setPhase(e.target.value as Phase)}>
+              {(Object.keys(PHASE) as Phase[]).map((p) => <option key={p} value={p}>{PHASE[p]}</option>)}
+            </Select>
+          </Field>
+          <Field label="Mức ảnh hưởng tới khách" htmlFor="pc-impact">
+            <Select id="pc-impact" value={impact} onChange={(e) => setImpact(e.target.value as StatusLevel)}>
+              {(['degraded_performance', 'partial_outage', 'major_outage'] as StatusLevel[]).map((l) => <option key={l} value={l}>{STATUS_LEVEL[l].label}</option>)}
+            </Select>
+          </Field>
+        </div>
+        {first && (
+          <Field label="Tiêu đề công khai" htmlFor="pc-title" hint="Viết cho khách đọc — không dùng tên alert/service nội bộ">
+            <Input id="pc-title" value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} placeholder="vd: Thanh toán bằng thẻ đang gián đoạn" />
+          </Field>
+        )}
+        <Field label="Nội dung" htmlFor="pc-msg" hint={`${message.length}/2000`}>
+          <Textarea id="pc-msg" rows={3} value={message} maxLength={2000} onChange={(e) => setMessage(e.target.value)} />
+        </Field>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={() => setMessage(TEMPLATE[phase])}>Dùng mẫu</Button>
+          <Button onClick={() => post.mutate()} disabled={post.isPending || message.trim().length < 10 || (first && !title.trim())}>Đăng</Button>
+        </div>
+      </Card>
     </section>
   );
 }
@@ -497,6 +563,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
       <p className="mb-3 break-words text-sm">{incident.title}</p>
       {incident.summary && <Card className="mb-4 p-3 text-sm whitespace-pre-line">{incident.summary}</Card>}
       <BusinessImpact id={incident.id} />
+      <PublicComms incident={incident} />
       <SimilarIncidents id={incident.id} />
       <QueryView q={inv} isEmpty={(d) => !d.items.length}
         empty={<EmptyState icon={<Bot className="size-6" />} title="Chưa có bản điều tra" description="Bấm “Tác tử điều tra” để chạy RCA nhiều bước qua công cụ MCP." />}>

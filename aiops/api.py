@@ -316,6 +316,50 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
         return {"incident_id": incident_id, "ongoing": not inc.get("resolved_at"), **incident_impact(inc)}
 
+    @app.post("/incidents/{incident_id}/status-updates")
+    async def post_status_update(incident_id: str, request: Request):
+        """Người trực đăng thông báo CÔNG KHAI cho sự cố (điều tra → xác định → theo dõi → đã khắc phục)."""
+        from .statuspage import PHASES
+
+        inc = responder.store.get_incident(incident_id)
+        if inc is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        body = await request.json()
+        status, message = str(body.get("status") or ""), str(body.get("message") or "").strip()
+        if status not in PHASES or not 10 <= len(message) <= 2000:
+            return err(400, "VALIDATION_ERROR", f"status ∈ {list(PHASES)}, message 10–2000 ký tự")
+        first = not responder.store.status_updates(incident_id)
+        title = str(body.get("title") or "").strip()[:160] or None
+        if first and not title:
+            return err(400, "VALIDATION_ERROR", "thông báo đầu tiên cần tiêu đề công khai (không dùng tên alert nội bộ)")
+        impact = body.get("impact")
+        if impact is not None and impact not in ("degraded_performance", "partial_outage", "major_outage"):
+            return err(400, "VALIDATION_ERROR", "impact ∈ degraded_performance | partial_outage | major_outage")
+        actor = request.headers.get("x-actor", "unknown")
+        row = responder.store.add_status_update(incident_id, status, message, actor, responder.clock(),
+                                                title if first else None, impact)
+        responder.store.audit(actor, "status_update_published", incident_id, details={"status": status})
+        return row
+
+    @app.get("/incidents/{incident_id}/status-updates")
+    def list_status_updates(incident_id: str):
+        return {"items": responder.store.status_updates(incident_id)}
+
+    @app.get("/status/public")
+    def public_status():
+        """Trang trạng thái cho KHÁCH (gateway mở công khai đúng đường này, cache ngắn)."""
+        from .statuspage import build as build_status
+
+        comps = (settings.raw.get("status_page") or {}).get("components") or []
+        failed: set[str] = set()
+        if responder.prom is not None:
+            try:
+                failed = {r["metric"].get("service") for r in responder.prom.query("synthetic_step_success == 0")}
+            except Exception as e:  # noqa: BLE001
+                log.warning("status page: synthetic lỗi: %s", e)
+        data = build_status(responder.store, responder.clock(), comps, failed)
+        return JSONResponse(data, headers={"cache-control": "public, max-age=30"})
+
     @app.get("/incidents/{incident_id}/postmortem")
     def postmortem(incident_id: str, format: str = "json"):
         from .agent.postmortem import build as build_pm

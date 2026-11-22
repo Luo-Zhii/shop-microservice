@@ -32,6 +32,11 @@ DDL = [
     """CREATE TABLE IF NOT EXISTS risk_models (
         id TEXT PRIMARY KEY, weights TEXT, n INTEGER, positives INTEGER, logloss_prior DOUBLE PRECISION,
         logloss_fit DOUBLE PRECISION, created_at DOUBLE PRECISION)""",
+    # thông báo sự cố CÔNG KHAI do người trực viết (trang trạng thái) — tách hẳn khỏi dữ liệu vận hành nội bộ
+    """CREATE TABLE IF NOT EXISTS status_updates (
+        id TEXT PRIMARY KEY, incident_id TEXT, status TEXT, impact TEXT, title TEXT, message TEXT, author TEXT,
+        created_at DOUBLE PRECISION)""",
+    "CREATE INDEX IF NOT EXISTS status_updates_incident_idx ON status_updates (incident_id, created_at)",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
@@ -222,6 +227,16 @@ class IncidentStore:
     def latest_model(self) -> dict | None:
         rows = self._exec("SELECT * FROM risk_models ORDER BY created_at DESC LIMIT 1")
         return self._dec(rows[0]) if rows else None
+
+    def add_status_update(self, incident_id: str, status: str, message: str, author: str, at: float,
+                          title: str | None = None, impact: str | None = None) -> dict:
+        row = {"id": uuid7(), "incident_id": incident_id, "status": status, "impact": impact, "title": title,
+               "message": message, "author": author, "created_at": at}
+        self._insert("status_updates", row)
+        return row
+
+    def status_updates(self, incident_id: str) -> list[dict]:
+        return self._exec("SELECT * FROM status_updates WHERE incident_id = ? ORDER BY created_at, id", (incident_id,))
 
     def audit(self, actor: str, event: str, incident_id: str | None = None, action_id: str | None = None,
               details: dict | None = None) -> dict:
