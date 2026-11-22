@@ -4,7 +4,7 @@
 
 | Mục tiêu (§1.2) | Kết quả | Minh chứng |
 |---|---|---|
-| M1 — Sàn TMĐT microservice nhất quán | 17 service (Node, Go, Python; thêm kế toán và kho ở chương 8) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 239 test tự động (179 ở chương 5 + 60 ở chương 8); test đồng thời inventory, promotion |
+| M1 — Sàn TMĐT microservice nhất quán | 17 service (Node, Go, Python; thêm kế toán và kho ở chương 8) + web 3 cổng; saga orchestration + outbox/inbox + idempotency; không bán vượt kho / quota dưới 50–200 request đồng thời | 240 test tự động (179 ở chương 5 + 61 ở chương 8; chạy lại toàn bộ 22/11: Node 121, Go 20, Python 67 + 32 — 0 lỗi); test đồng thời inventory, promotion |
 | M2 — DevSecOps có cổng chặn thật | Pipeline chặn khi test lỗi, lộ secret, CVE HIGH/CRITICAL; SBOM + Cosign keyless; Kyverno verifyImages | `ci.yml`; kyverno test 50/50 |
 | M3 — GitOps hybrid | Một repo cấu hình cho 4 môi trường; ApplicationSet đa cụm; canary + AnalysisTemplate; promote bằng PR | `make validate` 1027 manifest 0 lỗi |
 | M4 — Quan sát hợp nhất | OTel + LGTM, trace xuyên Kafka (traceparent trong sự kiện), log có trace_id, 4 dashboard, 3 SLO burn-rate | Chart + platform/observability |
