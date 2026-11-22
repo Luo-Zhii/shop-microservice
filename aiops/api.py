@@ -319,10 +319,46 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
         return {"incident_id": incident_id, "ongoing": not inc.get("resolved_at"), **incident_impact(inc)}
 
+    def internal_terms(inc: dict) -> list[str]:
+        """Từ nội bộ không được lên trang công khai: tên service (trừ 'web' — trùng "trang web"), alert, namespace."""
+        terms = [x for x in settings.services if x != "web"] + [settings.namespace]
+        terms += [a.get("alertname") for a in (inc.get("alerts") or []) if a.get("alertname")]
+        return terms
+
+    @app.get("/incidents/{incident_id}/status-draft")
+    def status_draft(incident_id: str, phase: str = Query("investigating", pattern="^(investigating|identified|monitoring|resolved)$")):
+        """Nháp thông báo công khai: mẫu tất định (an toàn by design); có LLM thì viết mượt hơn nhưng PHẢI qua bộ lọc
+        rò rỉ, không qua → giữ bản mẫu. Người trực vẫn là người bấm Đăng."""
+        from .statuspage import draft_update, lint_public
+
+        inc = responder.store.get_incident(incident_id)
+        if inc is None:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        comps = (settings.raw.get("status_page") or {}).get("components") or []
+        d = {**draft_update(inc, comps, phase), "provider": "template", "llm_rejected": []}
+        llm = responder.llm
+        if llm is not None and getattr(llm, "available", False):
+            prompt = (f"Giai đoạn: {phase}. Chức năng bị ảnh hưởng (theo cách khách gọi): {d['title']}. "
+                      f"Bản nháp mẫu: {d['message']}\nViết lại tối đa 3 câu tiếng Việt, lịch sự, cho KHÁCH HÀNG đọc.")
+            try:
+                text = llm.chat([{"role": "user", "content": prompt}], system=(
+                    "Bạn viết thông báo sự cố cho trang trạng thái công khai của sàn TMĐT. TUYỆT ĐỐI không nêu tên hệ thống nội bộ, "
+                    "máy chủ, IP, mã lỗi, công cụ vận hành, nguyên nhân kỹ thuật chi tiết hay thời hạn khắc phục chưa chắc chắn. "
+                    "Chỉ trả về đoạn văn, không tiêu đề."), max_tokens=300).strip()
+                leaks = lint_public(text, internal_terms(inc))
+                if text and not leaks and len(text) <= 600:
+                    d.update(message=text, provider=llm.name)
+                else:
+                    d["llm_rejected"] = leaks or ["bản LLM rỗng hoặc quá dài"]
+            except Exception as e:  # noqa: BLE001 - LLM lỗi thì dùng bản mẫu
+                d["llm_rejected"] = [f"LLM lỗi: {str(e)[:120]}"]
+        d["lint"] = lint_public(f"{d['title']}\n{d['message']}", internal_terms(inc))
+        return d
+
     @app.post("/incidents/{incident_id}/status-updates")
     async def post_status_update(incident_id: str, request: Request):
         """Người trực đăng thông báo CÔNG KHAI cho sự cố (điều tra → xác định → theo dõi → đã khắc phục)."""
-        from .statuspage import PHASES
+        from .statuspage import PHASES, lint_public
 
         inc = responder.store.get_incident(incident_id)
         if inc is None:
@@ -333,6 +369,11 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(400, "VALIDATION_ERROR", f"status ∈ {list(PHASES)}, message 10–2000 ký tự")
         first = not responder.store.status_updates(incident_id)
         title = str(body.get("title") or "").strip()[:160] or None
+        leaks = lint_public(f"{title or ''}\n{message}", internal_terms(inc))
+        if leaks:   # không có cờ "bỏ qua": thông tin nội bộ không bao giờ được lên trang công khai
+            return JSONResponse(status_code=422, content={"error": {"code": "INTERNAL_INFO_LEAK", "message":
+                                "Thông báo công khai chứa thông tin nội bộ — viết lại bằng ngôn ngữ khách hàng",
+                                "details": {"problems": leaks}}})
         if first and not title:
             return err(400, "VALIDATION_ERROR", "thông báo đầu tiên cần tiêu đề công khai (không dùng tên alert nội bộ)")
         impact = body.get("impact")

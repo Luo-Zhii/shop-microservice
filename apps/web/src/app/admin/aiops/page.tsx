@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
 import { Badge, Button, Card, EmptyState, Field, Input, KV, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
-import { api } from '@/lib/api';
+import { api, ApiError, errorMessage } from '@/lib/api';
 import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone } from '@/lib/format';
 import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
@@ -86,9 +86,24 @@ function PublicComms({ incident }: { incident: Incident }) {
   const [message, setMessage] = useState('');
   const items = q.data?.items ?? [];
   const first = items.length === 0;
+  const [note, setNote] = useState<string[]>([]);
   const post = useMutation({
-    mutationFn: () => api.post(`/aiops/incidents/${incident.id}/status-updates`, { status: phase, impact, message, ...(first ? { title } : {}) }),
-    onSuccess: () => { toast.success('Đã đăng lên trang trạng thái'); setMessage(''); void qc.invalidateQueries({ queryKey: ['aiops-status-updates', incident.id] }); },
+    mutationFn: () => api.post(`/aiops/incidents/${incident.id}/status-updates`, { status: phase, impact, message, ...(first ? { title } : {}) }, { silent: true }),
+    onSuccess: () => { toast.success('Đã đăng lên trang trạng thái'); setMessage(''); setNote([]); void qc.invalidateQueries({ queryKey: ['aiops-status-updates', incident.id] }); },
+    // bộ lọc phía server chặn thông tin nội bộ (tên service, pod, IP, alert…) — hiện rõ từng chỗ để viết lại
+    onError: (e) => {
+      const problems = e instanceof ApiError ? ((e.details as { problems?: string[] } | undefined)?.problems ?? []) : [];
+      setNote(problems);
+      toast.error(problems.length ? 'Thông báo chứa thông tin nội bộ — xem chi tiết bên dưới' : errorMessage(e));
+    },
+  });
+  const draft = useMutation({
+    mutationFn: () => api.get<{ title: string; message: string; impact: StatusLevel; provider: string; llm_rejected: string[] }>(`/aiops/incidents/${incident.id}/status-draft`, { phase }),
+    onSuccess: (d) => {
+      if (first) setTitle(d.title);
+      setMessage(d.message); setImpact(d.impact);
+      setNote(d.llm_rejected.length ? [`Bản LLM bị loại (${d.llm_rejected.join('; ')}) — dùng bản mẫu an toàn`] : []);
+    },
   });
   return (
     <section className="mb-4">
@@ -121,11 +136,15 @@ function PublicComms({ incident }: { incident: Incident }) {
             <Input id="pc-title" value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} placeholder="vd: Thanh toán bằng thẻ đang gián đoạn" />
           </Field>
         )}
+        {note.length > 0 && (
+          <ul className="list-disc space-y-0.5 rounded-lg bg-warning-soft py-2 pl-6 pr-2 text-sm">{note.map((n) => <li key={n} className="break-words">{n}</li>)}</ul>
+        )}
         <Field label="Nội dung" htmlFor="pc-msg" hint={`${message.length}/2000`}>
           <Textarea id="pc-msg" rows={3} value={message} maxLength={2000} onChange={(e) => setMessage(e.target.value)} />
         </Field>
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={() => setMessage(TEMPLATE[phase])}>Dùng mẫu</Button>
+          <Button variant="outline" onClick={() => draft.mutate()} disabled={draft.isPending}><Bot className="size-4" />Tác tử soạn nháp</Button>
           <Button onClick={() => post.mutate()} disabled={post.isPending || message.trim().length < 10 || (first && !title.trim())}>Đăng</Button>
         </div>
       </Card>

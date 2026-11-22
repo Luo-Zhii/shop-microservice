@@ -12,6 +12,7 @@ Nguyên tắc:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 VN = timezone(timedelta(hours=7))
@@ -152,3 +153,49 @@ def month_sla(store, components: list[dict], sla: dict, period: str, now: float)
                       "met": up >= target, "credit_pct": pct if up < target else 0.0,
                       "minutes_lost": round((1 - up) * days_win * 1440, 1)})
     return {"period": period, "final": final, "days_counted": days_win, "items": items}
+
+
+# ---------------------------------------------------------------- chống rò rỉ thông tin nội bộ ra trang công khai
+LEAK_PATTERNS = [
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "địa chỉ IP"),
+    (re.compile(r"\b[\w.-]+\.(?:svc|cluster\.local|internal)\b"), "tên miền nội bộ"),
+    (re.compile(r"\b[a-z0-9]+(?:-[a-z0-9]+)*-[a-f0-9]{8,10}-[a-z0-9]{5}\b"), "tên pod Kubernetes"),
+    (re.compile(r"(?i)\b(?:traceback|exception|stack ?trace|nullpointer|segfault|ECONNREFUSED|ETIMEDOUT)\b"), "chi tiết lỗi kỹ thuật"),
+    (re.compile(r"(?i)\b(?:namespace|kubectl|helm|argo ?cd|prometheus|alertmanager|grafana)\b"), "công cụ vận hành nội bộ"),
+    (re.compile(r"\b(?:sha-[0-9a-f]{7,}|[0-9a-f]{12,40})\b"), "mã phiên bản/commit"),
+]
+
+
+def lint_public(text: str, internal_terms: list[str]) -> list[str]:
+    """Danh sách vi phạm (rỗng = an toàn để công bố): tên service/alert nội bộ, IP, pod, tên miền nội bộ, stack trace…"""
+    found = []
+    for t in sorted({x for x in internal_terms if x and len(x) >= 3}, key=len, reverse=True):
+        if re.search(rf"(?<![\w-]){re.escape(t)}(?![\w-])", text, re.I):
+            found.append(f"tên nội bộ “{t}”")
+    for rx, label in LEAK_PATTERNS:
+        m = rx.search(text)
+        if m:
+            found.append(f"{label} “{m.group(0)}”")
+    return found
+
+
+PHASE_TEXT = {
+    "investigating": "Chúng tôi đang ghi nhận một số khách hàng gặp khó khăn khi {act} và đang khẩn trương kiểm tra nguyên nhân.",
+    "identified": "Chúng tôi đã xác định được nguyên nhân khiến việc {act} bị gián đoạn và đang triển khai biện pháp khắc phục.",
+    "monitoring": "Biện pháp khắc phục đã được áp dụng, việc {act} đã hoạt động trở lại. Chúng tôi tiếp tục theo dõi để bảo đảm ổn định.",
+    "resolved": "Sự cố ảnh hưởng tới việc {act} đã được khắc phục hoàn toàn. Thành thật xin lỗi quý khách vì sự bất tiện.",
+}
+ACTION_OF = {"checkout": "đặt hàng và thanh toán", "cart": "thêm sản phẩm vào giỏ hoặc áp mã khuyến mãi",
+             "browse": "xem và tìm kiếm sản phẩm", "delivery": "theo dõi giao hàng", "account": "đăng nhập và nhận thông báo",
+             "seller": "quản lý cửa hàng trên kênh người bán"}
+
+
+def draft_update(inc: dict, components: list[dict], phase: str) -> dict:
+    """Nháp TẤT ĐỊNH theo mẫu (không lộ nội bộ by design): nhóm chức năng của service bị ảnh hưởng → câu chữ cho khách."""
+    comp = next((c for c in components if inc["service"] in (c.get("services") or [])), None)
+    cid = comp["id"] if comp else "browse"
+    act = ACTION_OF.get(cid, "sử dụng một số chức năng")
+    title = f"{(comp or {}).get('name', 'Một số chức năng')} đang gặp gián đoạn" if phase != "resolved" else \
+        f"Đã khắc phục: {(comp or {}).get('name', 'một số chức năng')}"
+    impact = "major_outage" if (inc.get("severity") == "critical") else "degraded_performance"
+    return {"title": title, "message": PHASE_TEXT[phase].format(act=act), "impact": impact, "component": cid}
