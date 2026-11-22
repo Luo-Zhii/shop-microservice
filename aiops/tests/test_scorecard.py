@@ -21,7 +21,7 @@ def _repo(tmp_path):
         "services": ["gold"], "kpis": {"gold": {"x": {"direction": "up"}}}, "error_budget": {"slos": {"s1": ["gold"]}}}))
     (gitops / "apps/shopnow/services").mkdir(parents=True)
     (gitops / "apps/shopnow/services/gold.yaml").write_text(yaml.safe_dump({
-        "autoscaling": {"type": "keda"}, "rollout": {"enabled": True}}))
+        "autoscaling": {"enabled": True, "type": "keda"}, "rollout": {"enabled": True}}))
     (gitops / "apps/shopnow/services/bare.yaml").write_text(yaml.safe_dump({"networkPolicy": {"ingress": {"fromSameNamespace": True}}}))
     (gitops / "platform/chaos/experiments").mkdir(parents=True)
     (gitops / "platform/chaos/experiments/x.yaml").write_text("labelSelectors: {app.kubernetes.io/name: gold}\n")
