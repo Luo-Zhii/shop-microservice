@@ -106,8 +106,10 @@ export async function buildGateway(app: FastifyInstance, opts: GatewayOptions) {
   app.addHook('preHandler', async (req) => {
     const path = pathOf(req.url);
     if (!path.startsWith('/api/aiops/')) return;
-    // ngoại lệ DUY NHẤT: trang trạng thái cho khách — so khớp tuyệt đối (biến thể mã hoá / dot-segment vẫn bị chặn)
+    // ngoại lệ: trang trạng thái cho khách — so khớp tuyệt đối (biến thể mã hoá / dot-segment vẫn bị chặn)
     if (req.method === 'GET' && path === '/api/aiops/status/public') return;
+    // feed lịch thay đổi (iCal): ứng dụng lịch không gửi được JWT — AIOps tự kiểm chữ ký HMAC có hạn trong ?token=
+    if (req.method === 'GET' && path === '/api/aiops/calendar/feed.ics') return;
     if (/^\/api\/aiops\/(mcp|webhooks|metrics)(\/|$)/.test(path)) throw new AppError('FORBIDDEN', 'Endpoint chỉ dùng trong cụm');
     if (!req.user) throw unauthorized();
     if (!req.user.roles.includes('admin')) throw new AppError('FORBIDDEN', 'Chỉ quản trị viên');

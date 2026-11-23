@@ -867,6 +867,80 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         responder.store.audit(request.headers.get("x-actor", "api"), f"maintenance_{op}", details={"id": window_id})
         return _maint_view(w)
 
+    # ---------------------------------------------------------------- lịch thay đổi (Forward Schedule of Change) + feed iCal
+    def calendar_events(now: float, days: int) -> tuple[list[dict], list[str]]:
+        from datetime import datetime
+
+        from . import maintenance as mt
+        from .change_calendar import event, window
+        from .oncall import schedule
+        from .period_close import VN, _cfg as pc_cfg, window_of
+        from .vulns import report as vuln_report
+
+        end, evs, notes = now + days * 86400, [], []
+        cf = settings.raw.get("change_freeze") or {}
+        if cf.get("enabled") is not False:
+            before, after = float(cf.get("before_minutes", 120)) * 60, float(cf.get("after_minutes", 60)) * 60
+            try:
+                for s0, s1 in flash_sales(now - after, end + before):
+                    evs.append(event("freeze", str(int(s0)), "Đóng băng thay đổi — flash sale", s0 - before, s1 + after,
+                                     f"Flash sale {datetime.fromtimestamp(s0, VN):%d/%m %H:%M}–{datetime.fromtimestamp(s1, VN):%H:%M}. "
+                                     "Deploy chạm đường mua hàng cần duyệt tay; khẩn cấp ghi audit.", "warning"))
+            except (httpx.HTTPError, KeyError, ValueError) as e:
+                notes.append(f"không đọc được lịch flash sale: {str(e)[:80]}")
+        pc = pc_cfg(settings.raw.get("period_close"))
+        if pc.get("enabled") is not False:
+            d = datetime.fromtimestamp(now, VN)
+            y, m = (d.year - 1, 12) if d.month == 1 else (d.year, d.month - 1)
+            for _ in range(days // 28 + 3):
+                w = window_of(y, m, pc)
+                evs.append(event("period_close", w["period"], f"Khoá sổ kỳ {w['period']}", w["starts"], w["ends"],
+                                 f"Deploy chạm {', '.join(pc['services'])} cần duyệt tay; xem danh sách kiểm sẵn sàng khoá sổ.",
+                                 "warning"))
+                y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        for w in responder.store.maintenance_windows(since=now - 86400):
+            if mt.status_of(w, now) in ("scheduled", "in_progress"):
+                evs.append(event("maintenance", w["id"], f"Bảo trì: {w['title']}", w["starts"], mt.effective_end(w),
+                                 f"Service: {', '.join(w.get('services') or [])}. {w['message']}", "info"))
+        for sh in schedule(settings.raw.get("oncall") or {}, now, weeks=days // 7 + 1):
+            evs.append(event("oncall", str(int(sh["start"])), f"Trực: {sh['primary']['name']} (phụ: {sh['secondary']['name']})",
+                             sh["start"], sh["end"], "Đổi ca thứ Hai 09:00." + (" Có đổi ca đột xuất." if sh["override"] else "")))
+        sec = settings.raw.get("security") or {}
+        for v in vuln_report(responder.store, now, sec.get("sla_days"), sec.get("policy"))["items"]:
+            if v["priority"] in ("P1", "P2") and v["due_in_days"] is not None:
+                due = now + v["due_in_days"] * 86400
+                evs.append(event("vuln_due", f"{v['workload']}:{v['vuln_id']}:{v['pkg']}",
+                                 f"{'QUÁ HẠN ' if v['breach'] else ''}Hạn vá {v['vuln_id']} ({v['workload']}, {v['priority']})",
+                                 max(due, now) if v["breach"] else due, (max(due, now) if v["breach"] else due) + 3600,
+                                 f"Gói {v['pkg']} {v['installed']} → {v['fixed']}. " + " · ".join(v["reasons"]),
+                                 "danger" if v["breach"] or v["priority"] == "P1" else "warning"))
+        return window(evs, now - 86400, end), notes
+
+    @app.get("/calendar")
+    def calendar(days: int = Query(30, ge=1, le=120)):
+        evs, notes = calendar_events(responder.clock(), days)
+        return {"days": days, "items": evs, "notes": notes}
+
+    @app.get("/calendar/feed-url")
+    def calendar_feed_url():
+        """Link đăng ký lịch (iCal) có chữ ký, hạn 90 ngày — dán vào Google Calendar/Outlook."""
+        from .agent import approval
+
+        tok = approval.sign(responder.secret, "calendar", "feed", 90 * 86400, now=responder.clock())
+        # đường dẫn TƯƠNG ĐỐI qua gateway — web ghép với API_URL của chính nó (AIOps không cần biết tên miền công khai)
+        return {"path": f"/aiops/calendar/feed.ics?token={tok}", "expires_in_days": 90}
+
+    @app.get("/calendar/feed.ics")
+    def calendar_feed(token: str | None = None):
+        from .agent import approval
+        from .change_calendar import to_ics
+
+        if not approval.verify(responder.secret, "calendar", "feed", token, now=responder.clock()):
+            return err(401, "UNAUTHORIZED", "link lịch không hợp lệ hoặc đã hết hạn — lấy link mới ở trang AIOps")
+        evs, _ = calendar_events(responder.clock(), 60)
+        return PlainTextResponse(to_ics(evs, responder.clock()), media_type="text/calendar; charset=utf-8",
+                        headers={"cache-control": "private, max-age=300"})
+
     # ---------------------------------------------------------------- rủi ro thay đổi (CD gọi trước khi rollout)
     @app.post("/change-risk")
     async def change_risk(request: Request):

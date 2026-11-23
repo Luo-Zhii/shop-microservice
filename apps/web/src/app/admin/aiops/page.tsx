@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
 import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, KV, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
-import { api, ApiError, errorMessage } from '@/lib/api';
+import { api, ApiError, buildUrl, errorMessage } from '@/lib/api';
 import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, toDateTimeLocal, type Tone } from '@/lib/format';
 import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
@@ -29,16 +29,17 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'problems' | 'security' | 'autonomy' | 'drills' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'calendar' | 'problems' | 'security' | 'autonomy' | 'drills' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'problems', label: 'Vấn đề' }, { value: 'security', label: 'Bảo mật' }, { value: 'autonomy', label: 'Tự động hoá' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'calendar', label: 'Lịch' }, { value: 'problems', label: 'Vấn đề' }, { value: 'security', label: 'Bảo mật' }, { value: 'autonomy', label: 'Tự động hoá' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'changes' && <Changes />}
+      {view === 'calendar' && <ChangeCalendar />}
       {view === 'problems' && <Problems />}
       {view === 'security' && <Security />}
       {view === 'autonomy' && <Autonomy />}
@@ -921,6 +922,78 @@ function Security() {
             ]} />
         </div>
       )}
+    </QueryView>
+  );
+}
+
+type CalKind = 'freeze' | 'period_close' | 'maintenance' | 'oncall' | 'vuln_due';
+interface CalEvent { id: string; kind: CalKind; title: string; starts: number; ends: number; detail: string; severity: 'info' | 'warning' | 'danger' }
+const CAL_KIND: Record<CalKind, { label: string; tone: Tone }> = {
+  freeze: { label: 'Đóng băng', tone: 'warning' }, period_close: { label: 'Khoá sổ', tone: 'warning' },
+  maintenance: { label: 'Bảo trì', tone: 'info' }, oncall: { label: 'Ca trực', tone: 'neutral' }, vuln_due: { label: 'Hạn vá', tone: 'danger' },
+};
+
+/** Lịch thay đổi (Forward Schedule of Change): mọi mốc ảnh hưởng deploy/vận hành ở một chỗ + link đăng ký iCal. */
+function ChangeCalendar() {
+  const [hide, setHide] = useState<Set<CalKind>>(new Set());
+  const [feed, setFeed] = useState<string | null>(null);
+  const q = useQuery({ queryKey: ['aiops-calendar'], retry: false, queryFn: () => api.get<{ items: CalEvent[]; notes: string[] }>('/aiops/calendar', { days: 30 }) });
+  const link = useMutation({
+    mutationFn: () => api.get<{ path: string; expires_in_days: number }>('/aiops/calendar/feed-url'),
+    onSuccess: async (r) => {
+      const url = new URL(buildUrl(r.path), window.location.origin).toString();   // API_URL có thể là đường dẫn tương đối
+      setFeed(url);
+      try { await navigator.clipboard.writeText(url); toast.success(`Đã chép link lịch (hạn ${r.expires_in_days} ngày)`); } catch { /* hiện ô để tự chép */ }
+    },
+  });
+  const day = (t: number) => new Date(t * 1000).toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const hm = (t: number) => new Date(t * 1000).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  return (
+    <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Không có mốc nào trong 30 ngày tới" />}>
+      {(d) => {
+        const items = d.items.filter((e) => !hide.has(e.kind));
+        const groups = new Map<string, CalEvent[]>();
+        for (const e of items) groups.set(day(e.starts), [...(groups.get(day(e.starts)) ?? []), e]);
+        return (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {(Object.keys(CAL_KIND) as CalKind[]).map((k) => (
+                <button key={k} type="button" aria-pressed={!hide.has(k)}
+                  onClick={() => setHide((h) => { const n = new Set(h); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
+                  className={'min-h-11 rounded-full border px-3 text-sm ' + (hide.has(k) ? 'border-border text-muted line-through' : 'border-primary bg-primary-soft text-primary')}>
+                  {CAL_KIND[k].label} ({d.items.filter((e) => e.kind === k).length})
+                </button>
+              ))}
+              <Button variant="outline" size="sm" className="sm:ml-auto" onClick={() => link.mutate()} disabled={link.isPending}>Đăng ký lịch (iCal)</Button>
+            </div>
+            {feed && (
+              <Field label="Link lịch — dán vào Google Calendar (Thêm lịch → Từ URL) hoặc Outlook" htmlFor="cal-feed">
+                <Input id="cal-feed" readOnly value={feed} onFocus={(e) => e.currentTarget.select()} />
+              </Field>
+            )}
+            {d.notes.map((n) => <p key={n} className="text-sm text-warning break-words">{n}</p>)}
+            {[...groups.entries()].map(([g, evs]) => (
+              <section key={g}>
+                <h3 className="mb-2 text-sm font-semibold text-muted">{g}</h3>
+                <ul className="flex flex-col gap-2">
+                  {evs.map((e) => (
+                    <li key={e.id}>
+                      <Card className={'flex flex-col gap-1 p-3 text-sm' + (e.severity === 'danger' ? ' border-danger' : '')}>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={CAL_KIND[e.kind].tone}>{CAL_KIND[e.kind].label}</Badge>
+                          <span className="min-w-0 flex-1 break-words font-medium">{e.title}</span>
+                        </div>
+                        <p className="text-xs text-muted">{hm(e.starts)} → {e.ends - e.starts > 86400 ? `${day(e.ends)} ${hm(e.ends)}` : hm(e.ends)}</p>
+                        {e.detail && <p className="break-words text-xs text-muted">{e.detail}</p>}
+                      </Card>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        );
+      }}
     </QueryView>
   );
 }
