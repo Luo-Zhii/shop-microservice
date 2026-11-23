@@ -177,6 +177,15 @@ status_page:
 finops:
   min_days: 3
   price: {cpu_core_hour: 0.031611, ram_gib_hour: 0.004237}
+  # Phân bổ chi phí (cost_allocation.py): cluster cloud → trích trước vào sổ; on-prem chỉ showback (đã có khấu hao TSCĐ)
+  namespace: shopnow
+  shared_namespaces: [monitoring, observability, argocd, trivy-system, kube-system]
+  cloud_clusters: [prod-aws]
+  default_site: onprem
+  fx_vnd_per_usd: 25400
+  cost_centers:                 # service → trung tâm chi phí: sales = TK 6417, admin = TK 6427 (không khai → admin)
+    sales: [api-gateway, catalog, search, cart, promotion, order, payment, shipping, warehouse, inventory, review, ai-service, notification, synthetic]
+    admin: [identity, user-profile, seller, accounting, aiops]   # kho/vận chuyển là chi phí bán hàng (641) theo TT200
 
 # Lịch trực luân phiên + leo thang (oncall.py): tuần i người i trực chính, i+1 trực phụ; đổi ca thứ Hai 09:00 giờ VN
 oncall:

@@ -387,6 +387,7 @@ function Capacity() {
         )}
       </QueryView>
       <RightSizing />
+      <CostAllocation />
     </>
   );
 }
@@ -714,6 +715,56 @@ const RS_DIR: Record<RsItem['direction'], { label: string; tone: Tone }> = {
 };
 
 /** Right-sizing: requests khai báo vs dùng thật 7 ngày → đề xuất + tiết kiệm; mở PR GitOps qua cổng xác minh (người duyệt). */
+interface AllocItem { service: string; site: 'cloud' | 'onprem'; cost_center: 'sales' | 'admin'; direct_usd: number; shared_usd: number; total_usd: number; total_vnd: number }
+interface AllocReport { period: string; final: boolean; hours: number; fx_vnd_per_usd: number; items: AllocItem[];
+  totals: { cloud_usd: number; onprem_usd: number; sales_usd: number; admin_usd: number }; posted: { total_vnd: number; entry_no: number | null } | null }
+
+/** Phân bổ chi phí hạ tầng theo service (OpenCost) → trích trước chi phí cloud vào sổ (Nợ 6417/6427 / Có 335). */
+function CostAllocation() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['aiops-alloc'], retry: false, queryFn: () => api.get<AllocReport>('/aiops/finops/allocation') });
+  const post = useMutation({
+    mutationFn: (p: string) => api.post<{ total: number; entryNo: number | null }>(`/aiops/finops/allocation/${p}/post`),
+    onSuccess: (r) => {
+      toast.success(`Đã trích trước ${formatVND(r.total)}${r.entryNo ? ` (bút toán #${r.entryNo})` : ''}`);
+      void qc.invalidateQueries({ queryKey: ['aiops-alloc'] });
+    },
+  });
+  const d = q.data;
+  if (!d) return null;
+  const usd = (v: number) => `$${formatNumber(v)}`;
+  const status = d.posted
+    ? `Đã ghi sổ ${formatVND(d.posted.total_vnd)}${d.posted.entry_no ? ` (bút toán #${d.posted.entry_no})` : ''}.`
+    : d.final ? 'Chưa ghi sổ.' : 'Kỳ chưa kết thúc — số liệu tạm tính.';
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionTitle action={d.final && !d.posted && d.totals.cloud_usd > 0
+        ? <Button size="sm" onClick={() => post.mutate(d.period)} disabled={post.isPending}>Ghi trích trước</Button> : undefined}>
+        Phân bổ chi phí hạ tầng kỳ {d.period}
+      </SectionTitle>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Cloud (ghi sổ)" value={usd(d.totals.cloud_usd)} />
+        <Stat label="On-prem (showback)" value={usd(d.totals.onprem_usd)} />
+        <Stat label="Bán hàng · TK 6417" value={usd(d.totals.sales_usd)} />
+        <Stat label="Quản lý · TK 6427" value={usd(d.totals.admin_usd)} />
+      </div>
+      <p className="text-sm text-muted break-words">
+        Chi phí trực tiếp = core-giờ, GiB-giờ cấp phát (OpenCost) × đơn giá; phần dùng chung (giám sát, GitOps, quét bảo mật) chia theo tỉ lệ chi phí trực tiếp.
+        Chỉ phần cloud được trích trước (hoá đơn về sau khoá sổ); on-prem đã nằm trong khấu hao nên chỉ hiển thị. Tỉ giá {formatNumber(d.fx_vnd_per_usd)} VND/USD. {status}
+      </p>
+      <DataTable rows={d.items} rowKey={(i) => i.service + i.site}
+        columns={[
+          { key: 'svc', header: 'Service', primary: true, cell: (i) => <span className="font-mono text-sm">{i.service}</span> },
+          { key: 'site', header: 'Vị trí', badge: true, cell: (i) => <Badge tone={i.site === 'cloud' ? 'info' : 'neutral'}>{i.site === 'cloud' ? 'Cloud' : 'On-prem'}</Badge> },
+          { key: 'cc', header: 'Trung tâm chi phí', cell: (i) => (i.cost_center === 'sales' ? 'Bán hàng (6417)' : 'Quản lý (6427)') },
+          { key: 'direct', header: 'Trực tiếp', align: 'right', hideOnMobile: true, cell: (i) => usd(i.direct_usd) },
+          { key: 'shared', header: 'Dùng chung', align: 'right', hideOnMobile: true, cell: (i) => usd(i.shared_usd) },
+          { key: 'total', header: 'Tổng', align: 'right', cell: (i) => <span><b>{usd(i.total_usd)}</b> <span className="text-xs text-muted">≈ {formatVND(i.total_vnd)}</span></span> },
+        ]} />
+    </section>
+  );
+}
+
 function RightSizing() {
   const q = useQuery({ queryKey: ['aiops-rightsizing'], retry: false, queryFn: () => api.get<{ monthly_saving_usd: number; items: RsItem[] }>('/aiops/finops/rightsizing') });
   const pr = useMutation({

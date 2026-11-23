@@ -582,6 +582,45 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         fin = settings.raw.get("finops") or {}
         return analyze(responder.prom, settings.namespace, fin.get("price"), float(fin.get("min_days", 3)))
 
+    @app.get("/finops/allocation")
+    def finops_allocation(period: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")):
+        """Chi phí hạ tầng theo service × vị trí (cloud/on-prem) × trung tâm chi phí, gồm phần dùng chung chia theo tỉ lệ."""
+        from .cost_allocation import allocate
+
+        if responder.prom is None:
+            return err(503, "UPSTREAM_ERROR", "chưa cấu hình Prometheus/OpenCost")
+        p = period or _period_default()
+        out = allocate(responder.prom, p, responder.clock(), settings.raw.get("finops"))
+        posted = [a for a in responder.store.audit_events("infra_cost_posted") if (a.get("details") or {}).get("period") == p]
+        return {**out, "posted": (posted[0].get("details") if posted else None)}
+
+    @app.post("/finops/allocation/{period}/post")
+    def finops_allocation_post(period: str, request: Request):
+        """Ghi trích trước chi phí cloud kỳ đã kết thúc vào sổ (kế toán /internal/infra-costs, idempotent theo kỳ)."""
+        from .cost_allocation import allocate, posting_items
+
+        if not re.fullmatch(r"\d{4}-\d{2}", period):
+            return err(400, "VALIDATION_ERROR", "kỳ dạng YYYY-MM")
+        if responder.prom is None:
+            return err(503, "UPSTREAM_ERROR", "chưa cấu hình Prometheus/OpenCost")
+        rep = allocate(responder.prom, period, responder.clock(), settings.raw.get("finops"))
+        if not rep["final"]:
+            return err(409, "PERIOD_OPEN", "tháng chưa kết thúc — không trích trước trên số liệu dở dang")
+        items = posting_items(rep)
+        if not items:
+            return err(409, "NOTHING_TO_POST", "không có chi phí cloud nào trong kỳ")
+        actor = request.headers.get("x-actor", "api")
+        url, tok = os.getenv("ACCOUNTING_URL", "http://accounting:8115"), os.getenv("INTERNAL_TOKEN", "")
+        with httpx.Client(base_url=url, timeout=15, headers={"x-internal-token": tok}, transport=app.state.accounting_transport) as ac:
+            r = ac.post("/internal/infra-costs", json={"period": period, "actor": f"aiops:{actor}",
+                                                       "fxVndPerUsd": rep["fx_vnd_per_usd"], "items": items})
+        if r.status_code >= 400:
+            return err(502, "UPSTREAM_ERROR", f"kế toán từ chối: HTTP {r.status_code} {r.text[:200]}")
+        res = r.json()
+        responder.store.audit(actor, "infra_cost_posted", details={"period": period, "total_vnd": res.get("total"),
+                                                                   "entry_no": res.get("entryNo"), "services": len(items)})
+        return {"period": period, **res, "items": items}
+
     @app.get("/finops/rightsizing")
     def rightsizing():
         """requests khai báo so với mức dùng thật 7 ngày → đề xuất CPU/RAM + tiết kiệm USD/tháng (giải thích được)."""
@@ -715,7 +754,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         sp = settings.raw.get("status_page") or {}
         sla = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, p, now, settings.raw.get("maintenance"))
         due = [it["component"] for it in sla["items"] if not it["met"] and it["credit_pct"] > 0] if sla.get("final") else None
-        items = checks(q, responder.store, p, now, cfg["services"], due)
+        infra = bool(sla.get("final")) and bool((settings.raw.get("finops") or {}).get("cloud_clusters", ["prod-aws"]))
+        items = checks(q, responder.store, p, now, cfg["services"], due, infra_required=infra)
         return {"period": p, "services": cfg["services"], "close_days": cfg["close_days"], "windows": upcoming(now, cfg),
                 "active": bool(cur), "checks": items, **summary(items)}
 

@@ -173,3 +173,31 @@ export async function postSlaCredit(c: PoolClient, input: { period: string; comp
   }, today);
   return { created, entry, shops: perShop, total: perShop.reduce((a, s) => a + s.total, 0) };
 }
+
+/**
+ * Trích trước chi phí hạ tầng cloud kỳ `period` theo phân bổ của AIOps (OpenCost): mỗi service một dòng Nợ 6417 (trung tâm
+ * chi phí bán hàng) hoặc 6427 (quản lý), tổng Có 335. Idempotent theo sourceRef `infra:<period>` — gọi lại không ghi đôi.
+ */
+export async function postInfraCost(c: PoolClient, input: { period: string; actor: string; fxVndPerUsd: number;
+  items: { service: string; costCenter: 'sales' | 'admin'; amountVnd: number }[] }, today: string) {
+  const lines: LineInput[] = [];
+  let total = 0;
+  for (const it of input.items) {
+    const amount = Math.round(it.amountVnd);
+    if (amount <= 0) continue;
+    lines.push({ account: it.costCenter === 'sales' ? '6417' : '6427', debit: amount, memo: `infra:${input.period}:${it.service}` });
+    total += amount;
+  }
+  if (!lines.length) return { created: false, entry: null, total: 0 };
+  lines.push({ account: '335', credit: total, memo: `infra:${input.period}` });
+  // chứng từ ngày cuối kỳ (trích trước đúng kỳ phát sinh); kỳ đã khoá thì postEntry tự dời sang kỳ mở, ghi chú ngày gốc
+  const [y, m] = input.period.split('-').map(Number);
+  const endOfPeriod = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  const { entry, created } = await postEntry(c, {
+    date: endOfPeriod, source: 'infra', sourceRef: `infra:${input.period}`, eventType: 'infra.cost_accrued',
+    description: `Trích trước chi phí hạ tầng cloud kỳ ${input.period} theo phân bổ OpenCost (${lines.length - 1} service, ` +
+      `tỉ giá ${input.fxVndPerUsd} VND/USD)`,
+    createdBy: input.actor, lines,
+  }, today);
+  return { created, entry, total };
+}

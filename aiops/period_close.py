@@ -66,7 +66,8 @@ def freeze(at: float, services: list[str], cfg: dict | None = None) -> dict | No
     return {"active": True, "kind": "period_close", "services": hit, "period": w["period"], "window": [w["starts"], w["ends"]]}
 
 
-def checks(q, store, period: str, now: float, scope: list[str], sla_due: list[str] | None = None) -> list[dict]:
+def checks(q, store, period: str, now: float, scope: list[str], sla_due: list[str] | None = None,
+           infra_required: bool = False) -> list[dict]:
     """`q(promql) → float | None` (None = không đọc được hoặc không có series). Mỗi mục: ok | warn | fail | unknown + giá trị + gợi ý xử lý."""
     y, m = map(int, period.split("-"))
     p_start = datetime(y, m, 1, tzinfo=VN).timestamp()
@@ -96,6 +97,10 @@ def checks(q, store, period: str, now: float, scope: list[str], sla_due: list[st
         applied = any((a.get("details") or {}).get("period") == period for a in store.audit_events("sla_credits_applied"))
         add("sla_credits", "Hoàn phí SLA người bán đã ghi sổ", "ok" if not sla_due or applied else "fail",
             len(sla_due), "ghi hoàn phí ở tab Trang trạng thái → SLA (bút toán 5213/33311/331) trước khi khoá")
+    if infra_required:
+        posted = any((x.get("details") or {}).get("period") == period for x in store.audit_events("infra_cost_posted"))
+        add("infra_cost", "Đã trích trước chi phí hạ tầng cloud (6417/6427 / 335)", "ok" if posted else "fail", None,
+            "ghi ở AIOps → Dự báo dung lượng → Phân bổ chi phí hạ tầng; hoá đơn cloud về sau ngày khoá sổ nên phải trích trước")
     return out
 
 

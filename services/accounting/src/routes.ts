@@ -13,7 +13,7 @@ import {
 } from '@shopnow/platform';
 import { localDate, periodOf, postEntry, reverseEntry, trialBalance, verifyChain, withLines, type EntryRow } from './ledger';
 import { staleBalances } from './health';
-import { postSlaCredit } from './posting';
+import { postInfraCost, postSlaCredit } from './posting';
 
 export interface RouteDeps {
   pool: Pool;
@@ -406,6 +406,21 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
     const r = await withTx(pool, (c) => postSlaCredit(c, { ...b, vatRate: deps.vatRate ?? 0.1 }, today()));
     reply.code(r.created ? 201 : 200);
     return { created: r.created, entryNo: r.entry?.entry_no ?? null, total: r.total, shops: r.shops };
+  });
+
+  /** AIOps (FinOps) gửi phân bổ chi phí hạ tầng cloud của kỳ đã kết thúc → bút toán trích trước 6417/6427 / 335. */
+  app.post('/internal/infra-costs', { preHandler: auth.internalOnly }, async (req, reply) => {
+    const b = z.object({
+      period, actor: z.string().min(1).max(200), fxVndPerUsd: z.number().positive().max(1_000_000),
+      items: z.array(z.object({
+        service: z.string().regex(/^[a-z][a-z0-9-]{1,40}$/), costCenter: z.enum(['sales', 'admin']),
+        amountVnd: z.number().min(0).max(1e12),
+      })).min(1).max(200),
+    }).parse(req.body);
+    if (b.period >= periodOf(today())) throw badRequest('Chỉ trích trước chi phí của kỳ đã kết thúc');
+    const r = await withTx(pool, (c) => postInfraCost(c, b, today()));
+    reply.code(r.created ? 201 : 200);
+    return { created: r.created, entryNo: r.entry?.entry_no ?? null, total: r.total };
   });
 
   /** Luồng dữ liệu cho bộ kiểm toán AIOps (Benford, bút toán lạ…). */
