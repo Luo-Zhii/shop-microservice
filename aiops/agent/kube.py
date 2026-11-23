@@ -121,12 +121,19 @@ class NullInspector:
     def workload(self, namespace, service):
         return {"kind": "Deployment", "name": service}
 
+    def vulnerability_reports(self, namespace):
+        return []
+
 
 class StaticInspector:
     """Dùng cho test/dry-run: dữ liệu khai báo sẵn."""
 
-    def __init__(self, changes: list[dict] | None = None, health: dict[str, dict] | None = None):
-        self.changes, self.health = changes or [], health or {}
+    def __init__(self, changes: list[dict] | None = None, health: dict[str, dict] | None = None,
+                 vulns: list[dict] | None = None):
+        self.changes, self.health, self.vulns = changes or [], health or {}, vulns or []
+
+    def vulnerability_reports(self, namespace):
+        return list(self.vulns)
 
     def recent_changes(self, namespace, since):
         return [c for c in self.changes if c.get("changed_at", 0) >= since]
@@ -172,6 +179,12 @@ class KubeInspector:
             return {"kind": "Rollout", "name": service}
         except Exception:  # noqa: BLE001 - không có CRD hoặc không có Rollout
             return {"kind": "Deployment", "name": service}
+
+    def vulnerability_reports(self, namespace):
+        """VulnerabilityReport của Trivy Operator (quét liên tục workload đang chạy) — Role aiops-readonly cho phép list."""
+        res = self.co.list_namespaced_custom_object(group="aquasecurity.github.io", version="v1alpha1", namespace=namespace,
+                                                    plural="vulnerabilityreports")
+        return res.get("items", [])
 
 
 # ---------------------------------------------------------------- thực thi

@@ -29,16 +29,17 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'drills' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'security' | 'drills' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'security', label: 'Bảo mật' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'changes' && <Changes />}
+      {view === 'security' && <Security />}
       {view === 'drills' && <Drills />}
       {view === 'digest' && <Digest />}
     </div>
@@ -680,6 +681,40 @@ function OnCall() {
         {d.schedule.map((s) => <li key={s.start} className="break-words"><span className="text-muted">{day(s.start)}:</span> {s.primary.name} / {s.secondary.name}</li>)}
       </ol>
     </Card>
+  );
+}
+
+interface VulnItem { workload: string; container: string; image: string; vuln_id: string; severity: string; pkg: string; installed: string; fixed: string; title: string; age_days: number; sla_days: number | null; fixable: boolean; breach: boolean; due_in_days: number | null }
+
+/** SLA vá lỗ hổng của workload ĐANG CHẠY (Trivy Operator): CVE công bố sau khi deploy thì chỉ quét liên tục mới thấy. */
+function Security() {
+  const q = useQuery({ queryKey: ['aiops-vulns'], retry: false, queryFn: () => api.get<{ sla_days: Record<string, number>; open_by_severity: Record<string, number>; breaches: Record<string, number>; mttr_days: number | null; items: VulnItem[] }>('/aiops/security/vulns') });
+  return (
+    <QueryView q={q} isEmpty={(d) => !d.items.length}
+      empty={<EmptyState icon={<ShieldAlert className="size-6" />} title="Chưa có lỗ hổng nào trên workload đang chạy" description="Trivy Operator quét liên tục namespace shopnow; CronJob vuln-sync đồng bộ mỗi giờ." />}>
+      {(d) => (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="CRITICAL đang mở" value={String(d.open_by_severity.CRITICAL ?? 0)} tone={d.open_by_severity.CRITICAL ? 'danger' : 'success'} />
+            <Stat label="HIGH đang mở" value={String(d.open_by_severity.HIGH ?? 0)} />
+            <Stat label="Quá hạn SLA vá" value={String(Object.values(d.breaches).reduce((a, b) => a + b, 0))} tone={Object.keys(d.breaches).length ? 'danger' : 'success'} />
+            <Stat label="Thời gian vá (trung vị)" value={d.mttr_days == null ? '—' : `${d.mttr_days} ngày`} />
+          </div>
+          <p className="text-sm text-muted">SLA vá: CRITICAL {d.sla_days.CRITICAL} ngày, HIGH {d.sla_days.HIGH} ngày — chỉ tính lỗ hổng đã có bản sửa; tuổi không bị reset khi deploy lại hay rollback.</p>
+          <DataTable rows={d.items} rowKey={(i) => i.workload + i.container + i.vuln_id + i.pkg}
+            columns={[
+              { key: 'id', header: 'Lỗ hổng', primary: true, cell: (i) => <span className="break-words"><b className="font-mono text-sm">{i.vuln_id}</b> · {i.pkg}</span> },
+              { key: 'st', header: 'SLA', badge: true, cell: (i) => (!i.fixable ? <Badge tone="neutral">Chưa có bản sửa</Badge>
+                : i.breach ? <Badge tone="danger">Quá hạn {Math.abs(i.due_in_days ?? 0)} ngày</Badge>
+                : <Badge tone={(i.due_in_days ?? 99) <= 3 ? 'warning' : 'success'}>Còn {i.due_in_days} ngày</Badge>) },
+              { key: 'sev', header: 'Mức', cell: (i) => <Badge tone={i.severity === 'CRITICAL' ? 'danger' : 'warning'}>{i.severity}</Badge> },
+              { key: 'svc', header: 'Service', cell: (i) => <span className="font-mono text-xs">{i.workload}</span> },
+              { key: 'ver', header: 'Phiên bản → bản sửa', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.installed} → {i.fixed || '—'}</span> },
+              { key: 'img', header: 'Image', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.image}</span> },
+            ]} />
+        </div>
+      )}
+    </QueryView>
   );
 }
 

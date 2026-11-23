@@ -37,3 +37,5 @@ DORA_VALUE = Gauge("aiops_dora_value", "Chỉ số DORA 30 ngày (tần suất: 
                    ["metric", "environment"])
 DORA_BAND = Gauge("aiops_dora_band", "Mức DORA: 0=elite 1=high 2=medium 3=low", ["metric", "environment"])
 SLO_BUDGET_ETA = Gauge("aiops_slo_budget_eta_hours", "Dự báo số giờ tới khi cạn error budget (Theil–Sen 24h)", ["slo"])
+VULN_OPEN = Gauge("aiops_vuln_open", "Lỗ hổng đang mở trên workload đang chạy (Trivy Operator)", ["severity"])
+VULN_BREACH = Gauge("aiops_vuln_sla_breaches", "Lỗ hổng CÓ bản sửa quá hạn SLA vá (CRITICAL 7 ngày, HIGH 30 ngày)", ["severity"])

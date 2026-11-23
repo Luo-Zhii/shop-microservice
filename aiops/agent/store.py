@@ -42,6 +42,11 @@ DDL = [
         id TEXT PRIMARY KEY, runbook TEXT, chaos TEXT, mode TEXT, environment TEXT, status TEXT, started_by TEXT, started_at DOUBLE PRECISION,
         detected_at DOUBLE PRECISION, mitigated_at DOUBLE PRECISION, resolved_at DOUBLE PRECISION,
         followed_runbook INTEGER, notes TEXT, created_at DOUBLE PRECISION)""",
+    # lỗ hổng của workload ĐANG CHẠY (Trivy Operator) — theo dõi lần đầu thấy / đã khắc phục để đo SLA vá lỗ hổng
+    """CREATE TABLE IF NOT EXISTS vuln_findings (
+        id TEXT PRIMARY KEY, workload TEXT, container TEXT, image TEXT, vuln_id TEXT, severity TEXT, pkg TEXT,
+        installed TEXT, fixed TEXT, title TEXT, first_seen DOUBLE PRECISION, last_seen DOUBLE PRECISION,
+        resolved_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
@@ -259,6 +264,19 @@ class IncidentStore:
     def update_drill(self, id_: str, **fields) -> dict | None:
         self._update("drills", id_, fields)
         return self.get_drill(id_)
+
+    def vuln_findings(self, open_only: bool = False) -> list[dict]:
+        sql = "SELECT * FROM vuln_findings" + (" WHERE resolved_at IS NULL" if open_only else "")
+        return self._exec(sql + " ORDER BY first_seen")
+
+    def upsert_vuln(self, key: str, fields: dict, now: float) -> None:
+        if self._exec("SELECT id FROM vuln_findings WHERE id = ?", (key,)):
+            self._update("vuln_findings", key, {**fields, "last_seen": now, "resolved_at": None})
+        else:
+            self._insert("vuln_findings", {"id": key, **fields, "first_seen": now, "last_seen": now, "resolved_at": None})
+
+    def resolve_vuln(self, key: str, now: float) -> None:
+        self._update("vuln_findings", key, {"resolved_at": now})
 
     def running_drill(self) -> dict | None:
         rows = self._exec("SELECT * FROM drills WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")

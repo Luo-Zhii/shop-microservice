@@ -1018,6 +1018,34 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
         return report(responder.store, responder.clock(), days, environment)
 
+    # ---------------------------------------------------------------- DevSecOps: SLA vá lỗ hổng workload đang chạy
+    @app.post("/security/vulns/sync")
+    def vulns_sync(request: Request):
+        """CronJob mỗi giờ: đọc VulnerabilityReport (Trivy Operator) → cập nhật phát hiện mới / đã vá / mở lại."""
+        if settings.webhook_token and request.headers.get("authorization") != f"Bearer {settings.webhook_token}":
+            return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
+        from .metrics import VULN_BREACH, VULN_OPEN
+        from .vulns import report, sync
+
+        try:
+            reports = responder.inspector.vulnerability_reports(settings.namespace)
+        except Exception as e:  # noqa: BLE001 - chưa cài Trivy Operator / thiếu quyền
+            return err(502, "UPSTREAM_ERROR", f"không đọc được VulnerabilityReport: {str(e)[:200]}")
+        out = sync(responder.store, reports, responder.clock())
+        rep = report(responder.store, responder.clock(), (settings.raw.get("security") or {}).get("sla_days"))
+        VULN_OPEN.clear(); VULN_BREACH.clear()
+        for sev, n in rep["open_by_severity"].items():
+            VULN_OPEN.labels(sev).set(n)
+        for sev in ("CRITICAL", "HIGH"):
+            VULN_BREACH.labels(sev).set(rep["breaches"].get(sev, 0))
+        return {**out, "breaches": rep["breaches"]}
+
+    @app.get("/security/vulns")
+    def vulns_report():
+        from .vulns import report
+
+        return report(responder.store, responder.clock(), (settings.raw.get("security") or {}).get("sla_days"))
+
     @app.get("/oncall")
     def oncall():
         """Ai đang trực (chính/phụ), lịch 4 tuần tới, sự cố đang mở chưa ai nhận."""
