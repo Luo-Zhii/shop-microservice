@@ -50,6 +50,11 @@ def build(store, now: float, hours: int = 24, impact_fn=None, autonomy: dict | N
             attention.append(f"luật đủ thành tích để bỏ duyệt tay (xem bản vá ở tab Tự động hoá): {', '.join(autonomy['promote'])}")
         if autonomy.get("toil_over_budget"):
             attention.append(f"toil chiếm {round(autonomy['toil_share'] * 100)}% giờ trực — vượt ngân sách SRE")
+    from ..action_items import view as ai_view
+
+    od = [i for i in (ai_view(x, now) for x in store.action_items()) if i["overdue"]]
+    if od:
+        attention.append(f"{len(od)} việc sau sự cố đã quá hạn (P1: {sum(i['priority'] == 'P1' for i in od)}) — xem tab Vấn đề")
     if noisy and noisy[0][1] >= 3:
         attention.append(f"`{noisy[0][0]}` có {noisy[0][1]} sự cố trong {hours}h — cân nhắc postmortem tổng hợp")
     data = {

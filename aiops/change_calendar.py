@@ -7,6 +7,7 @@ Nguồn (đều đã có ở các mục trước, ở đây chỉ hợp nhất):
   maintenance   bảo trì có kế hoạch (8.59)                         → đã báo khách, có silence
   oncall        ca trực tuần (8.52)                                → ai chịu trách nhiệm
   vuln_due      hạn vá lỗ hổng P1/P2 (8.53, 8.54)                  → việc bảo mật có hạn chót
+  action_due    hạn việc cần làm sau sự cố (8.62)                 → bài học phải thành việc làm
 
 Feed .ics ký HMAC có hạn (như link duyệt hành động) — ứng dụng lịch không gửi được token đăng nhập, nên gateway mở ĐÚNG một
 đường GET /api/aiops/calendar/feed.ics và AIOps tự kiểm chữ ký.
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-KINDS = ("freeze", "period_close", "maintenance", "oncall", "vuln_due")
+KINDS = ("freeze", "period_close", "maintenance", "oncall", "vuln_due", "action_due")
 
 
 def event(kind: str, uid: str, title: str, starts: float, ends: float, detail: str = "", severity: str = "info") -> dict:

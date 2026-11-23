@@ -60,6 +60,11 @@ DDL = [
     """CREATE TABLE IF NOT EXISTS maintenance_windows (
         id TEXT PRIMARY KEY, title TEXT, message TEXT, services TEXT, starts DOUBLE PRECISION, ends DOUBLE PRECISION,
         silence_id TEXT, created_by TEXT, created_at DOUBLE PRECISION, cancelled_at DOUBLE PRECISION, completed_early_at DOUBLE PRECISION)""",
+    # việc cần làm sau sự cố (postmortem action items): người phụ trách, hạn chót, đóng phải dẫn PR/ticket
+    """CREATE TABLE IF NOT EXISTS action_items (
+        id TEXT PRIMARY KEY, incident_id TEXT, problem_id TEXT, title TEXT, owner TEXT, priority TEXT,
+        due_at DOUBLE PRECISION, status TEXT, ref TEXT, note TEXT, created_by TEXT, created_at DOUBLE PRECISION,
+        closed_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
@@ -312,6 +317,25 @@ class IncidentStore:
 
     def drills(self, limit: int = 200) -> list[dict]:
         return self._exec("SELECT * FROM drills ORDER BY started_at DESC LIMIT ?", (limit,))
+
+    # ---- việc sau sự cố ----
+    def add_action_item(self, **fields) -> dict:
+        row = {"id": uuid7(), **fields}
+        self._insert("action_items", row)
+        return self.get_action_item(row["id"])
+
+    def get_action_item(self, id_: str) -> dict | None:
+        rows = self._exec("SELECT * FROM action_items WHERE id = ?", (id_,))
+        return rows[0] if rows else None
+
+    def update_action_item(self, id_: str, **fields) -> dict | None:
+        self._update("action_items", id_, fields)
+        return self.get_action_item(id_)
+
+    def action_items(self, incident_id: str | None = None) -> list[dict]:
+        if incident_id:
+            return self._exec("SELECT * FROM action_items WHERE incident_id = ? ORDER BY created_at", (incident_id,))
+        return self._exec("SELECT * FROM action_items ORDER BY created_at DESC LIMIT 2000")
 
     # ---- bảo trì có kế hoạch ----
     def add_maintenance(self, **fields) -> dict:

@@ -34,7 +34,8 @@ def _dur(a, b) -> str:
     return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
 
 
-def build(inc: dict, actions: list[dict], audit: list[dict], investigations: list[dict], impact: dict | None = None) -> dict:
+def build(inc: dict, actions: list[dict], audit: list[dict], investigations: list[dict], impact: dict | None = None,
+          tracked: list[dict] | None = None) -> dict:
     inv = investigations[0] if investigations else None
     start = inc.get("fault_start") or inc.get("detected_at")
     timings = {
@@ -106,6 +107,13 @@ def build(inc: dict, actions: list[dict], audit: list[dict], investigations: lis
         todo.append("Interlock chặn hành động tự động → quyết định có mở rộng runbook hay giữ thao tác thủ công.")
     if impact and impact.get("available") and impact["gmv_lost_vnd"] > 0 and impact["confidence"] != "low":
         todo.insert(0, f"Ước mất {impact['orders_lost']:g} đơn — đưa vào ưu tiên backlog độ tin cậy theo giá trị tiền, không chỉ theo cảm giác.")
+    if tracked:   # việc đã được nhận theo dõi (action_items.py): trạng thái thật, người phụ trách, hạn, PR/ticket
+        lines += ["### Đang theo dõi", ""]
+        for it in tracked:
+            mark = "x" if it["status"] == "done" else "-" if it["status"] == "wontfix" else " "
+            extra = f" — {it['ref']}" if it.get("ref") else f" — không làm: {it['note']}" if it.get("note") and it["status"] == "wontfix" else ""
+            lines.append(f"- [{mark}] **{it['priority']}** {it['title']} · {it.get('owner') or 'chưa giao'} · hạn {_t(it['due_at'])}{extra}")
+        lines += ["", "### Gợi ý của tác tử", ""]
     lines += [f"- [ ] {t}" for t in todo] or ["- [ ] (bổ sung)"]
     return {"incident_id": inc["id"], "markdown": "\n".join(lines) + "\n", "action_items": todo, "timings": timings,
             "impact": impact}

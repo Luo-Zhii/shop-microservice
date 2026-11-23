@@ -553,7 +553,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         if inc is None:
             return err(404, "NOT_FOUND", "không có sự cố")
         pm = build_pm(inc, responder.store.actions_for(incident_id), responder.store.audit_for(incident_id),
-                      responder.store.investigations_for(incident_id), impact=incident_impact(inc))
+                      responder.store.investigations_for(incident_id), impact=incident_impact(inc),
+                      tracked=responder.store.action_items(incident_id))
         if format == "md":
             return PlainTextResponse(pm["markdown"], media_type="text/markdown; charset=utf-8",
                                      headers={"content-disposition": f'attachment; filename="postmortem-{incident_id}.md"'})
@@ -914,6 +915,13 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                                  max(due, now) if v["breach"] else due, (max(due, now) if v["breach"] else due) + 3600,
                                  f"Gói {v['pkg']} {v['installed']} → {v['fixed']}. " + " · ".join(v["reasons"]),
                                  "danger" if v["breach"] or v["priority"] == "P1" else "warning"))
+        for it in responder.store.action_items():
+            if it["status"] == "open":
+                due = float(it["due_at"])
+                at = max(due, now) if due < now else due
+                evs.append(event("action_due", it["id"], f"{'QUÁ HẠN ' if due < now else ''}Việc sau sự cố ({it['priority']}): {it['title']}",
+                                 at, at + 3600, f"Phụ trách: {it.get('owner') or 'chưa giao'}",
+                                 "danger" if due < now or it["priority"] == "P1" else "warning"))
         return window(evs, now - 86400, end), notes
 
     @app.get("/calendar")
@@ -1273,6 +1281,46 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         from .agent.alert_quality import analyze
 
         return analyze(responder.store, responder.clock(), days)
+
+    # ---------------------------------------------------------------- việc cần làm sau sự cố (postmortem action items)
+    @app.get("/action-items")
+    def action_items_report(days: int = Query(90, ge=7, le=365)):
+        from .action_items import report
+        from .metrics import ACTION_ITEMS_OVERDUE
+
+        out = report(responder.store, responder.clock(), days)
+        ACTION_ITEMS_OVERDUE.set(out["overdue"])
+        return out
+
+    @app.get("/incidents/{incident_id}/action-items")
+    def incident_action_items(incident_id: str):
+        from .action_items import view
+
+        return {"items": [view(i, responder.clock()) for i in responder.store.action_items(incident_id)]}
+
+    @app.post("/incidents/{incident_id}/action-items")
+    async def incident_action_item_create(incident_id: str, request: Request):
+        from .action_items import create, view
+
+        try:
+            it = create(responder.store, incident_id, await request.json(), request.headers.get("x-actor", "api"), responder.clock())
+        except KeyError:
+            return err(404, "NOT_FOUND", "không có sự cố")
+        except ValueError as e:
+            return err(400, "VALIDATION_ERROR", str(e))
+        return view(it, responder.clock())
+
+    @app.patch("/action-items/{item_id}")
+    async def action_item_update(item_id: str, request: Request):
+        from .action_items import update, view
+
+        try:
+            it = update(responder.store, item_id, await request.json(), request.headers.get("x-actor", "api"), responder.clock())
+        except KeyError:
+            return err(404, "NOT_FOUND", "không có việc")
+        except ValueError as e:
+            return err(400, "VALIDATION_ERROR", str(e))
+        return view(it, responder.clock())
 
     # ---------------------------------------------------------------- quản lý vấn đề (ITIL) + lỗi đã biết
     @app.get("/problems")

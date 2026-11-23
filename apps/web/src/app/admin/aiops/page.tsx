@@ -926,11 +926,124 @@ function Security() {
   );
 }
 
-type CalKind = 'freeze' | 'period_close' | 'maintenance' | 'oncall' | 'vuln_due';
+type AiPriority = 'P1' | 'P2' | 'P3';
+interface ActionItem { id: string; incident_id: string; title: string; owner: string | null; priority: AiPriority; due_at: number; status: 'open' | 'done' | 'wontfix'; ref: string | null; note: string | null; overdue: boolean; on_time: boolean | null; due_in_days: number }
+const AI_STATUS: Record<ActionItem['status'], { label: string; tone: Tone }> = { open: { label: 'Đang làm', tone: 'info' }, done: { label: 'Xong', tone: 'success' }, wontfix: { label: 'Không làm', tone: 'neutral' } };
+
+function dueText(i: ActionItem) {
+  if (i.status !== 'open') return i.ref || i.note || '';
+  return i.overdue ? `quá hạn ${Math.abs(i.due_in_days)} ngày` : `còn ${i.due_in_days} ngày`;
+}
+
+/** Việc cần làm sau sự cố: nhận gợi ý của postmortem thành việc có người phụ trách + hạn; đóng phải dẫn PR/ticket. */
+function IncidentActionItems({ id }: { id: string }) {
+  const qc = useQueryClient();
+  const [f, setF] = useState({ title: '', owner: '', priority: 'P2' as AiPriority });
+  const [closing, setClosing] = useState<{ item: ActionItem; status: 'done' | 'wontfix'; text: string } | null>(null);
+  const items = useQuery({ queryKey: ['aiops-ai', id], retry: false, queryFn: () => api.get<{ items: ActionItem[] }>(`/aiops/incidents/${id}/action-items`) });
+  const pm = useQuery({ queryKey: ['aiops-pm-suggest', id], retry: false, queryFn: () => api.get<{ action_items: string[] }>(`/aiops/incidents/${id}/postmortem`) });
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['aiops-ai', id] }); void qc.invalidateQueries({ queryKey: ['aiops-action-items'] }); };
+  const add = useMutation({
+    mutationFn: (b: { title: string; owner?: string; priority: AiPriority }) => api.post(`/aiops/incidents/${id}/action-items`, b),
+    onSuccess: () => { toast.success('Đã thêm việc'); setF({ title: '', owner: '', priority: 'P2' }); refresh(); },
+  });
+  const close = useMutation({
+    mutationFn: (c: NonNullable<typeof closing>) => api(`/aiops/action-items/${c.item.id}`, { method: 'PATCH', body: { status: c.status, [c.status === 'done' ? 'ref' : 'note']: c.text } }),
+    onSuccess: () => { toast.success('Đã cập nhật'); setClosing(null); refresh(); },
+  });
+  const tracked = items.data?.items ?? [];
+  const suggestions = (pm.data?.action_items ?? []).filter((t) => !tracked.some((i) => i.title === t.slice(0, 300)));
+  return (
+    <section className="mb-4">
+      <SectionTitle>Việc cần làm sau sự cố</SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {tracked.map((i) => (
+          <li key={i.id}>
+            <Card className={'flex flex-col gap-2 p-3 text-sm' + (i.overdue ? ' border-danger' : '')}>
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge tone={i.priority === 'P1' ? 'danger' : i.priority === 'P2' ? 'warning' : 'neutral'}>{i.priority}</Badge>
+                <Badge tone={i.overdue ? 'danger' : AI_STATUS[i.status].tone}>{i.overdue ? 'Quá hạn' : AI_STATUS[i.status].label}</Badge>
+                <span className="min-w-0 flex-1 break-words">{i.title}</span>
+              </div>
+              <p className="break-words text-xs text-muted">{i.owner || 'Chưa giao'} · hạn {formatDate(new Date(i.due_at * 1000).toISOString(), false)} · {dueText(i)}</p>
+              {i.status === 'open' && (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setClosing({ item: i, status: 'done', text: '' })}>Đã xong</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setClosing({ item: i, status: 'wontfix', text: '' })}>Không làm</Button>
+                </div>
+              )}
+            </Card>
+          </li>
+        ))}
+        {suggestions.map((t) => (
+          <li key={t}>
+            <Card className="flex flex-col gap-2 p-3 text-sm sm:flex-row sm:items-center">
+              <span className="min-w-0 flex-1 break-words text-muted">Gợi ý: {t}</span>
+              <Button size="sm" variant="outline" className="self-start sm:self-auto" disabled={add.isPending} onClick={() => add.mutate({ title: t.slice(0, 300), priority: 'P2' })}>Theo dõi</Button>
+            </Card>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_10rem_6rem_auto] sm:items-end">
+        <Field label="Việc mới" htmlFor={`ai-t-${id}`}><Input id={`ai-t-${id}`} value={f.title} maxLength={300} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="vd: thêm canary analysis cho payment" /></Field>
+        <Field label="Phụ trách" htmlFor={`ai-o-${id}`}><Input id={`ai-o-${id}`} value={f.owner} maxLength={120} onChange={(e) => setF({ ...f, owner: e.target.value })} /></Field>
+        <Field label="Ưu tiên" htmlFor={`ai-p-${id}`}>
+          <Select id={`ai-p-${id}`} value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value as AiPriority })}>
+            <option value="P1">P1 · 7 ngày</option><option value="P2">P2 · 30 ngày</option><option value="P3">P3 · 90 ngày</option>
+          </Select>
+        </Field>
+        <Button onClick={() => add.mutate({ title: f.title, owner: f.owner || undefined, priority: f.priority })} disabled={add.isPending || !f.title.trim()}>Thêm</Button>
+      </div>
+      {closing && (
+        <Card className="mt-3 flex flex-col gap-2 p-3 text-sm">
+          <p className="break-words font-medium">{closing.status === 'done' ? 'Đã xong' : 'Không làm'}: {closing.item.title}</p>
+          <Field label={closing.status === 'done' ? 'PR / ticket đã làm (bắt buộc)' : 'Lý do không làm (bắt buộc)'} htmlFor={`ai-close-${id}`}>
+            <Input id={`ai-close-${id}`} value={closing.text} maxLength={500} autoFocus onChange={(e) => setClosing({ ...closing, text: e.target.value })}
+              placeholder={closing.status === 'done' ? 'vd: shop-microservice#431' : 'vd: đã thay bằng việc PRB-0003'} />
+          </Field>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => setClosing(null)}>Huỷ</Button>
+            <Button onClick={() => close.mutate(closing)} disabled={close.isPending || !closing.text.trim()}>Lưu</Button>
+          </div>
+        </Card>
+      )}
+    </section>
+  );
+}
+
+/** Tổng hợp việc sau sự cố toàn hệ thống: tỉ lệ đóng đúng hạn, quá hạn theo người phụ trách. */
+function ActionItemsSummary() {
+  const q = useQuery({ queryKey: ['aiops-action-items'], retry: false, queryFn: () => api.get<{ open: number; overdue: number; unassigned: number; on_time_rate: number | null; median_close_days: number | null; owners: { owner: string; open: number; overdue: number }[]; items: ActionItem[] }>('/aiops/action-items', { days: 90 }) });
+  const d = q.data;
+  if (!d) return null;
+  return (
+    <section className="flex flex-col gap-3">
+      <SectionTitle>Việc cần làm sau sự cố</SectionTitle>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Đang mở" value={String(d.open)} />
+        <Stat label="Quá hạn" value={String(d.overdue)} tone={d.overdue ? 'danger' : 'success'} />
+        <Stat label="Đóng đúng hạn (90 ngày)" value={d.on_time_rate == null ? '—' : `${Math.round(d.on_time_rate * 100)}%`} />
+        <Stat label="Thời gian đóng (trung vị)" value={d.median_close_days == null ? '—' : `${d.median_close_days} ngày`} />
+      </div>
+      {d.owners.length > 0 && (
+        <p className="break-words text-sm text-muted">Theo người phụ trách: {d.owners.map((o) => `${o.owner} ${o.open} mở${o.overdue ? ` (${o.overdue} quá hạn)` : ''}`).join(' · ')}</p>
+      )}
+      {d.items.filter((i) => i.overdue).slice(0, 10).map((i) => (
+        <Card key={i.id} className="flex flex-wrap items-center gap-2 border-danger p-3 text-sm">
+          <Badge tone="danger">{i.priority}</Badge>
+          <span className="min-w-0 flex-1 break-words">{i.title}</span>
+          <span className="text-xs text-muted">{i.owner || 'chưa giao'} · {dueText(i)}</span>
+        </Card>
+      ))}
+    </section>
+  );
+}
+
+type CalKind = 'freeze' | 'period_close' | 'maintenance' | 'oncall' | 'vuln_due' | 'action_due';
 interface CalEvent { id: string; kind: CalKind; title: string; starts: number; ends: number; detail: string; severity: 'info' | 'warning' | 'danger' }
 const CAL_KIND: Record<CalKind, { label: string; tone: Tone }> = {
   freeze: { label: 'Đóng băng', tone: 'warning' }, period_close: { label: 'Khoá sổ', tone: 'warning' },
-  maintenance: { label: 'Bảo trì', tone: 'info' }, oncall: { label: 'Ca trực', tone: 'neutral' }, vuln_due: { label: 'Hạn vá', tone: 'danger' },
+  maintenance: { label: 'Bảo trì', tone: 'info' }, oncall: { label: 'Ca trực', tone: 'neutral' }, vuln_due: { label: 'Hạn vá', tone: 'danger' }, action_due: { label: 'Việc sau sự cố', tone: 'warning' },
 };
 
 /** Lịch thay đổi (Forward Schedule of Change): mọi mốc ảnh hưởng deploy/vận hành ở một chỗ + link đăng ký iCal. */
@@ -1058,6 +1171,7 @@ function Problems() {
               ]} />
           ) : <p className="text-sm text-muted">Chưa mở vấn đề nào.</p>}
           {sel && <ProblemSheet problem={sel} onClose={() => setSel(null)} />}
+          <ActionItemsSummary />
         </div>
       )}
     </QueryView>
@@ -1290,6 +1404,7 @@ function IncidentSheet({ incident, onClose }: { incident: Incident; onClose: () 
       <PublicComms incident={incident} />
       <SuggestedRunbooks id={incident.id} />
       <SimilarIncidents id={incident.id} />
+      <IncidentActionItems id={incident.id} />
       <QueryView q={inv} isEmpty={(d) => !d.items.length}
         empty={<EmptyState icon={<Bot className="size-6" />} title="Chưa có bản điều tra" description="Bấm “Tác tử điều tra” để chạy RCA nhiều bước qua công cụ MCP." />}>
         {() => latest && (
