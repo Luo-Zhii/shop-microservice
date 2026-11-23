@@ -178,6 +178,16 @@ finops:
   min_days: 3
   price: {cpu_core_hour: 0.031611, ram_gib_hour: 0.004237}
 
+# Lịch trực luân phiên + leo thang (oncall.py): tuần i người i trực chính, i+1 trực phụ; đổi ca thứ Hai 09:00 giờ VN
+oncall:
+  start: "2026-11-02T09:00:00+07:00"
+  escalate_after_minutes: 15
+  rotation:
+    - {name: "Nguyễn Văn An", handle: "@an_sre"}
+    - {name: "Trần Thị Bình", handle: "@binh_sre"}
+    - {name: "Lê Minh Châu", handle: "@chau_sre"}
+  overrides: []          # vd [{from: "2026-12-01T09:00:00+07:00", to: "2026-12-03T09:00:00+07:00", primary: "Lê Minh Châu"}]
+
 # Diễn tập sự cố (drills.py): mỗi runbook phải được tập lại sau tối đa N ngày; mặc định chạy ở staging
 drills:
   cadence_days: 90

@@ -1018,6 +1018,25 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
         return report(responder.store, responder.clock(), days, environment)
 
+    @app.get("/oncall")
+    def oncall():
+        """Ai đang trực (chính/phụ), lịch 4 tuần tới, sự cố đang mở chưa ai nhận."""
+        from .oncall import schedule, shift
+
+        cfg, now = settings.raw.get("oncall") or {}, responder.clock()
+        unacked = [i for i in responder.store.list_incidents(status="open", limit=500) if not i.get("acknowledged_at")]
+        return {"current": shift(cfg, now), "schedule": schedule(cfg, now), "escalate_after_minutes": cfg.get("escalate_after_minutes", 15),
+                "unacknowledged": len(unacked)}
+
+    @app.post("/oncall/escalate")
+    def oncall_escalate(request: Request):
+        """CronJob 2 phút/lần gọi: sự cố mở chưa ai nhận quá ngưỡng → báo người trực phụ (mỗi sự cố một lần)."""
+        if settings.webhook_token and request.headers.get("authorization") != f"Bearer {settings.webhook_token}":
+            return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
+        from .oncall import escalate
+
+        return {"escalated": escalate(responder.store, responder.notifier, settings.raw.get("oncall") or {}, responder.clock())}
+
     @app.get("/reports/oncall-digest")
     def oncall_digest(hours: int = Query(24, ge=1, le=168)):
         from .agent.digest import build as build_digest

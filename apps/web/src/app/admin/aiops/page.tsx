@@ -11,7 +11,7 @@ import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone 
 import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
 
-interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; drill_id?: string | null; root_causes?: { service: string; score: number }[] }
+interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; drill_id?: string | null; assignee?: string | null; root_causes?: { service: string; score: number }[] }
 interface Step { n: number; thought: string; tool: string | null; evidence?: string; ok?: boolean }
 interface Hypothesis { service: string; cause: string; confidence: number; evidence: string[] }
 interface Investigation {
@@ -659,6 +659,30 @@ function Drills() {
   );
 }
 
+interface OnCallPerson { name: string; handle?: string }
+interface OnCallShift { start: number; end: number; primary: OnCallPerson; secondary: OnCallPerson; override: boolean }
+
+/** Lịch trực luân phiên: ai đang trực chính/phụ, khi nào đổi ca, sự cố chưa ai nhận (leo thang sau N phút). */
+function OnCall() {
+  const q = useQuery({ queryKey: ['aiops-oncall'], refetchInterval: 60_000, retry: false,
+    queryFn: () => api.get<{ current: OnCallShift | null; schedule: OnCallShift[]; escalate_after_minutes: number; unacknowledged: number }>('/aiops/oncall') });
+  const d = q.data;
+  if (!d?.current) return null;
+  const day = (t: number) => formatDate(new Date(t * 1000).toISOString());
+  return (
+    <Card className="flex flex-col gap-2 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="min-w-0 flex-1 break-words">Đang trực: <b>{d.current.primary.name}</b> {d.current.primary.handle} · phụ <b>{d.current.secondary.name}</b>{d.current.override && <Badge className="ml-1" tone="info">đổi ca</Badge>}</span>
+        <Badge tone={d.unacknowledged ? 'danger' : 'success'}>{d.unacknowledged} sự cố chưa ai nhận</Badge>
+      </div>
+      <p className="text-xs text-muted">Hết ca {day(d.current.end)} · chưa ai nhận quá {d.escalate_after_minutes} phút → tự báo người trực phụ.</p>
+      <ol className="grid grid-cols-1 gap-1 text-xs sm:grid-cols-2">
+        {d.schedule.map((s) => <li key={s.start} className="break-words"><span className="text-muted">{day(s.start)}:</span> {s.primary.name} / {s.secondary.name}</li>)}
+      </ol>
+    </Card>
+  );
+}
+
 /** Bản tin bàn giao ca (cùng nội dung CronJob 8:30 gửi lên kênh trực) — xem trước hoặc gửi ngay. */
 function Digest() {
   const q = useQuery({ queryKey: ['aiops-digest'], queryFn: () => api.get<{ markdown: string; attention: string[]; incidents: { new: number; open: number; resolved: number } }>('/aiops/reports/oncall-digest', { hours: 24 }) });
@@ -666,6 +690,7 @@ function Digest() {
     <QueryView q={q}>
       {(d) => (
         <div className="flex flex-col gap-3">
+          <OnCall />
           <div className="grid grid-cols-3 gap-2">
             <Stat label="Sự cố mới 24h" value={String(d.incidents.new)} />
             <Stat label="Đang mở" value={String(d.incidents.open)} tone={d.incidents.open ? 'danger' : 'success'} />
@@ -736,6 +761,7 @@ function Incidents() {
               { key: 'svc', header: 'Service', cell: (i) => <span className="font-mono text-xs">{i.service}</span> },
               { key: 'sev', header: 'Mức', cell: (i) => <Badge tone={SEV[i.severity] ?? 'neutral'}>{i.severity}</Badge> },
               { key: 'rc', header: 'Nguyên nhân gốc (RCA)', cell: (i) => i.root_causes?.[0]?.service ?? '—' },
+              { key: 'who', header: 'Người trực', hideOnMobile: true, cell: (i) => <span className="text-xs">{i.assignee ?? '—'}</span> },
               { key: 'at', header: 'Phát hiện', cell: (i) => <span title={formatDate(i.detected_at)}>{timeAgo(i.detected_at)}</span> },
             ]} />
         )}

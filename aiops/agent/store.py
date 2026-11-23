@@ -47,7 +47,8 @@ DDL = [
 ]
 # migration cộng dồn (chỉ thêm cột, không sửa/xoá) cho DB đã tạo từ phiên bản trước — chạy lặp lại vô hại
 ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT"),
-               ("incidents", "drill_id", "TEXT")]   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
+               ("incidents", "drill_id", "TEXT"),
+               ("incidents", "assignee", "TEXT")]   # người trực chính lúc sự cố mở (oncall.py)   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
 JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}

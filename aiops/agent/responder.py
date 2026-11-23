@@ -110,7 +110,8 @@ class Responder:
                 severity=labels.get("severity", "warning"), title=(alert.get("annotations") or {}).get("summary")
                 or f"{labels.get('alertname', 'Alert')} — {svc}", source=labels.get("source", "prometheus"),
                 detected_at=detected, fault_start=fault_start, fault_start_source="annotation" if fault_start else None,
-                alerts=[entry], drill_id=(self.store.running_drill() or {}).get("id"))
+                alerts=[entry], drill_id=(self.store.running_drill() or {}).get("id"),
+                assignee=self._oncall_primary(detected))
             self.refresh_open_gauge()
             self.store.audit("alertmanager", "incident_created", inc["id"], details={"alert": labels})
             touched.append(inc["id"])
@@ -226,6 +227,12 @@ class Responder:
         if action and action["status"] == "approved":
             self.execute(action["id"], actor="auto")
         return self.store.get_incident(incident_id)
+
+    def _oncall_primary(self, at: float) -> str | None:
+        from ..oncall import shift
+
+        sh = shift(self.s.raw.get("oncall") or {}, at)
+        return sh["primary"]["name"] if sh else None
 
     def approval_urls(self, action_id: str) -> tuple[str, str]:
         base = self.s.public_url.rstrip("/")
