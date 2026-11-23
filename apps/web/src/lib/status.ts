@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Tone } from '@/lib/format';
 
-export type Level = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage';
+export type Level = 'operational' | 'under_maintenance' | 'degraded_performance' | 'partial_outage' | 'major_outage';
 export type Phase = 'investigating' | 'identified' | 'monitoring' | 'resolved';
 export interface StatusDay { date: string; uptime: number; status: 'operational' | 'degraded' | 'outage' }
 export interface StatusComponent { id: string; name: string; status: Level; uptime_90d: number; days: StatusDay[] }
@@ -10,10 +10,12 @@ export interface PublicIncident {
   id: string; title: string; status: Phase; impact: Level; components: string[]; started_at: string; resolved_at: string | null;
   updates: { status: Phase; message: string; at: string }[];
 }
-export interface PublicStatus { overall: Level; updated_at: string; components: StatusComponent[]; active_incidents: PublicIncident[]; recent_incidents: PublicIncident[] }
+export interface PublicMaintenance { id: string; title: string; message: string; status: 'scheduled' | 'in_progress'; components: string[]; starts: string; ends: string }
+export interface PublicStatus { overall: Level; updated_at: string; components: StatusComponent[]; active_incidents: PublicIncident[]; recent_incidents: PublicIncident[]; maintenance?: PublicMaintenance[] }
 
 export const LEVEL: Record<Level, { label: string; tone: Tone }> = {
   operational: { label: 'Hoạt động bình thường', tone: 'success' },
+  under_maintenance: { label: 'Đang bảo trì', tone: 'info' },
   degraded_performance: { label: 'Chậm hơn bình thường', tone: 'warning' },
   partial_outage: { label: 'Gián đoạn một phần', tone: 'warning' },
   major_outage: { label: 'Gián đoạn', tone: 'danger' },

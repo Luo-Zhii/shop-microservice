@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 VN = timezone(timedelta(hours=7))
-LEVELS = ("operational", "degraded_performance", "partial_outage", "major_outage")
+LEVELS = ("operational", "under_maintenance", "degraded_performance", "partial_outage", "major_outage")
 WEIGHT = {"major_outage": 1.0, "partial_outage": 0.3, "degraded_performance": 0.0}
 PHASES = ("investigating", "identified", "monitoring", "resolved")
 SEV_LEVEL = {"critical": "major_outage", "warning": "degraded_performance"}
@@ -34,9 +34,18 @@ def _level(i: dict, impacts: dict[str, str] | None) -> str:
     return (impacts or {}).get(i["id"]) or SEV_LEVEL.get(i.get("severity") or "warning", "degraded_performance")
 
 
+def _minus(a: float, b: float, excl: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """[a, b) trừ đi các khoảng loại trừ (bảo trì đã báo trước) → các đoạn còn lại."""
+    segs = [(a, b)]
+    for x0, x1 in excl:
+        segs = [p for s0, s1 in segs for p in ((s0, min(s1, x0)), (max(s0, x1), s1)) if p[1] > p[0]]
+    return segs
+
+
 def uptime_days(incidents: list[dict], services: set[str], now: float, days: int = 90,
-                impacts: dict[str, str] | None = None) -> list[dict]:
-    """Mỗi ngày (giờ VN): % thời gian hoạt động có trọng số; sự cố chồng nhau tính theo mức nặng nhất tại từng phút."""
+                impacts: dict[str, str] | None = None, excluded: list[tuple[float, float]] | None = None) -> list[dict]:
+    """Mỗi ngày (giờ VN): % thời gian hoạt động có trọng số; sự cố chồng nhau tính theo mức nặng nhất tại từng phút.
+    `excluded`: khoảng bảo trì đã báo trước đủ hạn — không tính là gián đoạn (8.59)."""
     end_day = _day(now)
     start_day = end_day - timedelta(days=days - 1)
     day_start = lambda d: datetime(d.year, d.month, d.day, tzinfo=VN).timestamp()  # noqa: E731
@@ -51,7 +60,8 @@ def uptime_days(incidents: list[dict], services: set[str], now: float, days: int
             continue
         a = float(i.get("fault_start") or i["detected_at"])
         b = float(i.get("resolved_at") or now)
-        spans.append((max(a, day_start(start_day)), min(b, now), WEIGHT[lvl]))
+        for s0, s1 in _minus(max(a, day_start(start_day)), min(b, now), excluded or []):
+            spans.append((s0, s1, WEIGHT[lvl]))
     # sweep-line trên các mốc biên: giữa hai mốc liên tiếp, trọng số = mức nặng nhất đang diễn ra (không cộng đôi)
     marks = sorted({x for s0, e0, _ in spans for x in (s0, e0) if e0 > s0})
     for a, b in zip(marks, marks[1:]):
@@ -73,7 +83,12 @@ def uptime_days(incidents: list[dict], services: set[str], now: float, days: int
 
 
 def build(store, now: float, components: list[dict], synthetic_failed_services: set[str] | None = None,
-          history_days: int = 14, uptime_window: int = 90) -> dict:
+          history_days: int = 14, uptime_window: int = 90, maint_cfg: dict | None = None) -> dict:
+    from . import maintenance as mt
+
+    mc = mt.cfg(maint_cfg)
+    windows = store.maintenance_windows(since=now - uptime_window * 86400)
+    in_progress = [w for w in windows if mt.status_of(w, now) == "in_progress"]
     incidents = store.list_incidents(since=now - uptime_window * 86400, limit=5000, exclude_drills=True)
     open_incs = [i for i in incidents if i["status"] in ("open", "acknowledged", "mitigated")]
     failed = synthetic_failed_services or set()
@@ -89,7 +104,9 @@ def build(store, now: float, components: list[dict], synthetic_failed_services: 
                 status = _worst(status, _level(i, impacts))
         if svcs & failed:
             status = _worst(status, "partial_outage")
-        days = uptime_days(incidents, svcs, now, uptime_window, impacts)
+        if any(set(w.get("services") or []) & svcs for w in in_progress):
+            status = _worst(status, "under_maintenance")
+        days = uptime_days(incidents, svcs, now, uptime_window, impacts, mt.exclusions(windows, svcs, mc))
         comps.append({"id": c["id"], "name": c["name"], "status": status, "days": days,
                       "uptime_90d": round(sum(d["uptime"] for d in days) / len(days), 5)})
     name_of = {s: c["name"] for c in components for s in c.get("services") or []}
@@ -114,6 +131,7 @@ def build(store, now: float, components: list[dict], synthetic_failed_services: 
     for c in comps:
         overall = _worst(overall, c["status"])
     return {"overall": overall, "updated_at": _iso(now), "components": comps, "active_incidents": active,
+            "maintenance": mt.public(windows, components, now, mc),
             "recent_incidents": [p for p in published if p["status"] == "resolved"][:10]}
 
 
@@ -121,7 +139,7 @@ def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def month_sla(store, components: list[dict], sla: dict, period: str, now: float) -> dict:
+def month_sla(store, components: list[dict], sla: dict, period: str, now: float, maint_cfg: dict | None = None) -> dict:
     """Uptime cả tháng (giờ VN) của các nhóm chức năng có cam kết SLA → bậc hoàn phí. Tháng chưa kết thúc: `final=False`."""
     from calendar import monthrange
 
@@ -133,6 +151,10 @@ def month_sla(store, components: list[dict], sla: dict, period: str, now: float)
     upto = min(now, end.timestamp() - 1)
     days_win = (_day(upto) - first.date()).days + 1
     incidents = store.list_incidents(since=first.timestamp() - 7 * 86400, limit=10000, exclude_drills=True)
+    from . import maintenance as mt
+
+    mc = mt.cfg(maint_cfg)
+    windows = store.maintenance_windows(since=first.timestamp())   # bảo trì báo trước đủ hạn: trừ khỏi SLA (điều khoản hợp đồng)
     impacts = {}
     for i in incidents:
         ups = store.status_updates(i["id"])
@@ -144,7 +166,8 @@ def month_sla(store, components: list[dict], sla: dict, period: str, now: float)
         rule = sla.get(c["id"])
         if not rule:
             continue
-        days = uptime_days(incidents, set(c.get("services") or []), upto, days_win, impacts)
+        svcs = set(c.get("services") or [])
+        days = uptime_days(incidents, svcs, upto, days_win, impacts, mt.exclusions(windows, svcs, mc))
         up = sum(d["uptime"] for d in days) / len(days) if days else 1.0
         tiers = sorted(((float(a), float(b)) for a, b in rule.get("credits", [])), key=lambda t: t[0])
         pct = next((b for a, b in tiers if up < a), 0.0)        # bậc thấp nhất mà uptime nằm dưới

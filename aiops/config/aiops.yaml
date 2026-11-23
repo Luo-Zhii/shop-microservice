@@ -219,6 +219,13 @@ change_freeze:
   before_minutes: 120
   after_minutes: 60
 
+# Bảo trì có kế hoạch (maintenance.py): báo trước ≥ notice_hours thì được trừ khỏi uptime/SLA; một khung ≤ max_hours;
+# trang trạng thái hiện các khung trong upcoming_days ngày tới. Không được chồng khung đóng băng (khoá sổ, flash sale).
+maintenance:
+  notice_hours: 48
+  max_hours: 8
+  upcoming_days: 7
+
 # Khoá sổ cuối kỳ (period_close.py): [00:00 ngày cuối tháng, 23:59 ngày close_days tháng sau] giờ VN — deploy chạm
 # các service tài chính bị ép duyệt tay như đóng băng flash sale; /period-close liệt kê việc phải xong trước khi khoá.
 period_close:

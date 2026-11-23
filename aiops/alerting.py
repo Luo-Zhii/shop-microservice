@@ -30,6 +30,30 @@ class AlertmanagerClient:
         return True
 
 
+    def create_silence(self, service_regex: str, starts_at: float, ends_at: float, created_by: str, comment: str) -> str | None:
+        """Silence theo nhãn service (regex) cho khung bảo trì — Alertmanager nhận cả silence TƯƠNG LAI (startsAt sau hiện tại)."""
+        from datetime import datetime, timezone
+
+        iso = lambda t: datetime.fromtimestamp(t, timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+        body = {"matchers": [{"name": "service", "value": service_regex, "isRegex": True, "isEqual": True}],
+                "startsAt": iso(starts_at), "endsAt": iso(ends_at), "createdBy": created_by, "comment": comment[:500]}
+        try:
+            r = self.client.post("/api/v2/silences", json=body)
+            r.raise_for_status()
+            return r.json().get("silenceID")
+        except (httpx.HTTPError, ValueError) as e:
+            log.error("không tạo được silence: %s", e)
+            return None
+
+    def expire_silence(self, silence_id: str) -> bool:
+        try:
+            r = self.client.delete(f"/api/v2/silence/{silence_id}")
+            return r.status_code < 300
+        except httpx.HTTPError as e:
+            log.error("không gỡ được silence %s: %s", silence_id, e)
+            return False
+
+
 def build_alert(alertname: str, service: str, namespace: str, score: float, starts_at: float, ends_at: float,
                 top_features: list, generator_url: str, firing: bool, env: str | None = None) -> dict:
     sev = "critical" if score >= 0.85 else "warning"

@@ -5,9 +5,9 @@ import { Bot, CheckCircle2, FileText, GitPullRequest, ShieldAlert, Siren, Snowfl
 import { useState } from 'react';
 import { DataTable } from '@/components/data-table';
 import { Stat } from '@/components/stat';
-import { Badge, Button, Card, EmptyState, Field, Input, KV, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
+import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, KV, PageTitle, QueryView, SectionTitle, Select, Sheet, Tabs, Textarea } from '@/components/ui';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone } from '@/lib/format';
+import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, toDateTimeLocal, type Tone } from '@/lib/format';
 import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
 
@@ -533,6 +533,108 @@ function PeriodClose() {
   );
 }
 
+type MaintStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+interface MaintWindow { id: string; title: string; message: string; services: string[]; starts: number; ends: number; status: MaintStatus; sla_excluded: boolean; silence_id: string | null; created_by: string }
+const MAINT: Record<MaintStatus, { label: string; tone: Tone }> = {
+  scheduled: { label: 'Sắp diễn ra', tone: 'info' }, in_progress: { label: 'Đang bảo trì', tone: 'warning' },
+  completed: { label: 'Đã xong', tone: 'success' }, cancelled: { label: 'Đã huỷ', tone: 'neutral' },
+};
+
+/** Bảo trì có kế hoạch: báo trước trên trang trạng thái, silence Alertmanager, trừ khỏi SLA nếu báo trước đủ hạn. */
+function MaintenanceWindows() {
+  const qc = useQueryClient();
+  const [form, setForm] = useState(false);
+  const q = useQuery({ queryKey: ['aiops-maint'], retry: false,
+    queryFn: () => api.get<{ items: MaintWindow[]; services: string[]; notice_hours: number; max_hours: number }>('/aiops/maintenance') });
+  const op = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'cancel' | 'complete' }) => api.post(`/aiops/maintenance/${id}/${action}`),
+    onSuccess: () => { toast.success('Đã cập nhật, đã gỡ silence'); void qc.invalidateQueries({ queryKey: ['aiops-maint'] }); },
+  });
+  const d = q.data;
+  if (!d) return null;
+  const ts = (t: number) => formatDate(new Date(t * 1000).toISOString());
+  const live = d.items.filter((w) => w.status === 'scheduled' || w.status === 'in_progress');
+  return (
+    <Card className="flex flex-col gap-3 p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <Wrench className="size-4 shrink-0 text-info" />
+        <b className="min-w-0 flex-1 break-words">Bảo trì có kế hoạch</b>
+        <Button size="sm" onClick={() => setForm(true)}>Lên lịch</Button>
+      </div>
+      {live.length ? (
+        <ul className="flex flex-col divide-y divide-border">
+          {live.map((w) => (
+            <li key={w.id} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="min-w-0 break-words font-medium">{w.title}</span>
+                  <Badge tone={MAINT[w.status].tone}>{MAINT[w.status].label}</Badge>
+                  {!w.sla_excluded && <Badge tone="warning">Vẫn tính SLA</Badge>}
+                  {!w.silence_id && <Badge tone="danger">Chưa có silence</Badge>}
+                </div>
+                <p className="break-words text-xs text-muted">{ts(w.starts)} → {ts(w.ends)} · <span className="font-mono">{w.services.join(', ')}</span></p>
+              </div>
+              {w.status === 'scheduled'
+                ? <Button variant="outline" size="sm" className="self-start sm:self-auto" disabled={op.isPending} onClick={() => op.mutate({ id: w.id, action: 'cancel' })}>Huỷ</Button>
+                : <Button variant="outline" size="sm" className="self-start sm:self-auto" disabled={op.isPending} onClick={() => op.mutate({ id: w.id, action: 'complete' })}>Kết thúc sớm</Button>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-muted">Không có khung bảo trì nào sắp tới.</p>}
+      <p className="text-xs text-muted break-words">Báo trước ≥ {d.notice_hours} giờ thì thời gian bảo trì không tính vào uptime/SLA người bán; mỗi khung tối đa {d.max_hours} giờ; không được chồng khung khoá sổ hay đóng băng flash sale của chính service đó.</p>
+      {form && <MaintenanceForm services={d.services} onClose={() => setForm(false)} />}
+    </Card>
+  );
+}
+
+function MaintenanceForm({ services, onClose }: { services: string[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const later = (h: number) => toDateTimeLocal(new Date(Date.now() + h * 3600_000).toISOString());
+  const [f, setF] = useState({ title: '', message: '', starts: later(72), ends: later(74), services: [] as string[], emergency: false });
+  const create = useMutation({
+    mutationFn: () => api.post<{ warnings: string[] }>('/aiops/maintenance', {
+      title: f.title, message: f.message, services: f.services, emergency: f.emergency,
+      starts: new Date(f.starts).getTime() / 1000, ends: new Date(f.ends).getTime() / 1000,
+    }),
+    onSuccess: (r) => {
+      toast.success('Đã lên lịch bảo trì');
+      for (const w of r.warnings ?? []) toast(w);
+      void qc.invalidateQueries({ queryKey: ['aiops-maint'] });
+      onClose();
+    },
+  });
+  const toggle = (s: string) => setF((x) => ({ ...x, services: x.services.includes(s) ? x.services.filter((y) => y !== s) : [...x.services, s] }));
+  return (
+    <Sheet open onClose={onClose} title="Lên lịch bảo trì"
+      footer={<>
+        <Button variant="outline" onClick={onClose}>Huỷ</Button>
+        <Button onClick={() => create.mutate()} disabled={create.isPending || !f.title.trim() || f.message.trim().length < 10 || !f.services.length}>Lên lịch</Button>
+      </>}>
+      <div className="flex flex-col gap-3">
+        <Field label="Tiêu đề công khai" htmlFor="mt-title" hint="Khách sẽ đọc — không dùng tên service nội bộ">
+          <Input id="mt-title" value={f.title} maxLength={160} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="vd: Nâng cấp hệ thống thanh toán" />
+        </Field>
+        <Field label="Lời nhắn cho khách" htmlFor="mt-msg">
+          <Textarea id="mt-msg" rows={3} value={f.message} maxLength={2000} onChange={(e) => setF({ ...f, message: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Bắt đầu" htmlFor="mt-start"><Input id="mt-start" type="datetime-local" value={f.starts} onChange={(e) => setF({ ...f, starts: e.target.value })} /></Field>
+          <Field label="Kết thúc" htmlFor="mt-end"><Input id="mt-end" type="datetime-local" value={f.ends} onChange={(e) => setF({ ...f, ends: e.target.value })} /></Field>
+        </div>
+        <Field label="Service bị ảnh hưởng">
+          <div className="flex flex-wrap gap-2">
+            {services.map((s) => (
+              <button key={s} type="button" aria-pressed={f.services.includes(s)} onClick={() => toggle(s)}
+                className={'min-h-11 rounded-full border px-3 font-mono text-sm ' + (f.services.includes(s) ? 'border-primary bg-primary-soft text-primary' : 'border-border')}>{s}</button>
+            ))}
+          </div>
+        </Field>
+        <Checkbox checked={f.emergency} onChange={(v) => setF({ ...f, emergency: v })} label="Khẩn cấp: cho phép chồng khung đóng băng (ghi audit, phải có postmortem)" />
+      </div>
+    </Sheet>
+  );
+}
+
 /** Vòng học chấm rủi ro thay đổi: deploy thật (promote.yml ghi) → nhãn theo RCA sau 2h → học lại trọng số có cổng log-loss. */
 function Changes() {
   const qc = useQueryClient();
@@ -550,6 +652,7 @@ function Changes() {
     <div className="flex flex-col gap-4">
       <FreezeWindows />
       <PeriodClose />
+      <MaintenanceWindows />
       <QueryView q={q} isEmpty={(d) => !d.deploys}
         empty={<EmptyState title="Chưa có deploy nào được ghi" description="Đặt biến AIOPS_URL cho workflow promote để mỗi lần promote ghi diff thật vào vòng học." />}>
         {(d) => (

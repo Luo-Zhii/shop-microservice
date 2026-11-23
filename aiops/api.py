@@ -115,6 +115,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     gitops = deps.pop("gitops", None)
     deps_accounting_transport = deps.pop("accounting_transport", None)
     deps_promotion_transport = deps.pop("promotion_transport", None)
+    deps_alertmanager_transport = deps.pop("alertmanager_transport", None)
     engine, responder = build(settings, **deps)
     ag = settings.section("agent")
     gcfg = ag.get("gitops") or {}
@@ -140,6 +141,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     app.state.engine, app.state.responder = engine, responder
     app.state.accounting_transport = deps_accounting_transport
     app.state.promotion_transport = deps_promotion_transport
+    app.state.alertmanager_transport = deps_alertmanager_transport
     _setup_tracing(app)
 
     @app.middleware("http")
@@ -487,7 +489,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
         sp = settings.raw.get("status_page") or {}
         return month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, period or _period_default(),
-                         responder.clock())
+                         responder.clock(), settings.raw.get("maintenance"))
 
     @app.post("/sla/credits/{period}/apply")
     def sla_apply(period: str, request: Request):
@@ -497,7 +499,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         if not re.fullmatch(r"\d{4}-\d{2}", period):
             return err(400, "VALIDATION_ERROR", "kỳ dạng YYYY-MM")
         sp = settings.raw.get("status_page") or {}
-        rep = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, period, responder.clock())
+        rep = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, period, responder.clock(),
+                        settings.raw.get("maintenance"))
         if not rep["final"]:
             return err(409, "PERIOD_OPEN", "tháng chưa kết thúc — không hoàn phí trên số liệu dở dang")
         actor = request.headers.get("x-actor", "api")
@@ -529,7 +532,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                 failed = {r["metric"].get("service") for r in responder.prom.query("synthetic_step_success == 0")}
             except Exception as e:  # noqa: BLE001
                 log.warning("status page: synthetic lỗi: %s", e)
-        data = build_status(responder.store, responder.clock(), comps, failed)
+        data = build_status(responder.store, responder.clock(), comps, failed, maint_cfg=settings.raw.get("maintenance"))
         return JSONResponse(data, headers={"cache-control": "public, max-age=30"})
 
     @app.get("/incidents/{incident_id}/runbooks")
@@ -710,11 +713,119 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
                 return None
 
         sp = settings.raw.get("status_page") or {}
-        sla = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, p, now)
+        sla = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, p, now, settings.raw.get("maintenance"))
         due = [it["component"] for it in sla["items"] if not it["met"] and it["credit_pct"] > 0] if sla.get("final") else None
         items = checks(q, responder.store, p, now, cfg["services"], due)
         return {"period": p, "services": cfg["services"], "close_days": cfg["close_days"], "windows": upcoming(now, cfg),
                 "active": bool(cur), "checks": items, **summary(items)}
+
+    # ---------------------------------------------------------------- bảo trì có kế hoạch
+    def maintenance_conflicts(starts: float, ends: float, services: list[str]) -> tuple[list[str], list[str]]:
+        """(chặn, cảnh báo): bảo trì cũng là thay đổi — không được chồng khung khoá sổ / đóng băng flash sale của chính service đó."""
+        from datetime import datetime
+
+        from .period_close import VN, _cfg as pc_cfg, window_of
+
+        blocks, warns = [], []
+        pc = pc_cfg(settings.raw.get("period_close"))
+        if pc.get("enabled") is not False and set(services) & set(pc["services"]):
+            d0, d1 = datetime.fromtimestamp(starts, VN), datetime.fromtimestamp(ends, VN)
+            months = {(d0.year, d0.month), (d1.year, d1.month), ((d0.year - 1, 12) if d0.month == 1 else (d0.year, d0.month - 1))}
+            for y, m in sorted(months):
+                w = window_of(y, m, pc)
+                if w["starts"] < ends and starts < w["ends"]:
+                    blocks.append(f"chồng khung khoá sổ kỳ {w['period']}")
+        cf = settings.raw.get("change_freeze") or {}
+        scope = set(cf.get("services") or (settings.raw.get("capacity") or {}).get("event_services") or [])
+        if cf.get("enabled") is not False and set(services) & scope:
+            before, after = float(cf.get("before_minutes", 120)) * 60, float(cf.get("after_minutes", 60)) * 60
+            try:
+                for s0, s1 in flash_sales(starts - before, ends + after):
+                    if s0 - before < ends and starts < s1 + after:
+                        blocks.append("chồng khung đóng băng quanh flash sale")
+                        break
+            except (httpx.HTTPError, KeyError, ValueError) as e:
+                warns.append(f"không đọc được lịch flash sale ({str(e)[:80]}) — chưa kiểm được đóng băng")
+        return blocks, warns
+
+    def _maint_view(w: dict) -> dict:
+        from . import maintenance as mt
+
+        mc = mt.cfg(settings.raw.get("maintenance"))
+        return {**w, "status": mt.status_of(w, responder.clock()), "sla_excluded": mt.eligible(w, mc)}
+
+    def _am():
+        from .alerting import AlertmanagerClient
+
+        url = settings.alertmanager_url
+        return AlertmanagerClient(url, transport=app.state.alertmanager_transport) if url else None
+
+    def maintenance_known_services() -> set[str]:
+        known = {s for c in (settings.raw.get("status_page") or {}).get("components") or [] for s in c.get("services") or []}
+        return known | set((settings.raw.get("capacity") or {}).get("event_services") or []) | set(mt_services_extra())
+
+    @app.get("/maintenance")
+    def maintenance_list():
+        from . import maintenance as mt
+
+        mc = mt.cfg(settings.raw.get("maintenance"))
+        return {"items": [_maint_view(w) for w in responder.store.maintenance_windows(since=responder.clock() - 30 * 86400)],
+                "services": sorted(maintenance_known_services()), "notice_hours": mc["notice_hours"], "max_hours": mc["max_hours"]}
+
+    @app.post("/maintenance")
+    async def maintenance_create(request: Request):
+        """Lên lịch bảo trì: kiểm khung đóng băng, tạo silence Alertmanager tương lai, báo trước trên trang trạng thái."""
+        import re as _re
+
+        from . import maintenance as mt
+
+        body = await request.json()
+        mc, now, actor = mt.cfg(settings.raw.get("maintenance")), responder.clock(), request.headers.get("x-actor", "api")
+        data, problem = mt.validate(body, now, mc, maintenance_known_services())
+        if problem:
+            return err(400, "VALIDATION_ERROR", problem)
+        blocks, warns = maintenance_conflicts(data["starts"], data["ends"], data["services"])
+        if blocks and not body.get("emergency"):
+            return err(409, "CHANGE_FREEZE", "; ".join(blocks) + " — chọn khung khác hoặc khai emergency (có audit)")
+        w = responder.store.add_maintenance(**data, created_by=actor, created_at=now)
+        am = _am()
+        sid = am.create_silence("|".join(_re.escape(x) for x in data["services"]), data["starts"], data["ends"], actor,
+                                f"Bảo trì có kế hoạch: {data['title']}") if am else None
+        if sid:
+            w = responder.store.update_maintenance(w["id"], silence_id=sid)
+        else:
+            warns.append("chưa tạo được silence Alertmanager — người trực có thể nhận cảnh báo trong lúc bảo trì")
+        responder.store.audit(actor, "maintenance_scheduled", details={"id": w["id"], "services": data["services"],
+                                                                      "emergency": bool(blocks), "bypassed": blocks})
+        if not mt.eligible(w, mc):
+            warns.append(f"báo trước dưới {mc['notice_hours']} giờ — thời gian bảo trì VẪN tính vào SLA người bán")
+        return {**_maint_view(w), "warnings": warns}
+
+    def mt_services_extra() -> list[str]:
+        from .period_close import _cfg as pc_cfg
+
+        return pc_cfg(settings.raw.get("period_close"))["services"]
+
+    @app.post("/maintenance/{window_id}/{op}")
+    def maintenance_op(window_id: str, op: str, request: Request):
+        """cancel (chưa bắt đầu) | complete (kết thúc sớm khi đang diễn ra) — gỡ silence ngay."""
+        from . import maintenance as mt
+
+        w = responder.store.get_maintenance(window_id)
+        if w is None:
+            return err(404, "NOT_FOUND", "không có khung bảo trì")
+        now, st = responder.clock(), mt.status_of(w, responder.clock())
+        if op == "cancel" and st == "scheduled":
+            w = responder.store.update_maintenance(window_id, cancelled_at=now)
+        elif op == "complete" and st == "in_progress":
+            w = responder.store.update_maintenance(window_id, completed_early_at=now)
+        else:
+            return err(409, "INVALID_STATE", f"không thể {op} khung đang ở trạng thái {st}")
+        am = _am()
+        if w.get("silence_id") and am:
+            am.expire_silence(w["silence_id"])
+        responder.store.audit(request.headers.get("x-actor", "api"), f"maintenance_{op}", details={"id": window_id})
+        return _maint_view(w)
 
     # ---------------------------------------------------------------- rủi ro thay đổi (CD gọi trước khi rollout)
     @app.post("/change-risk")

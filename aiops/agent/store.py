@@ -56,6 +56,10 @@ DDL = [
         id TEXT PRIMARY KEY, code TEXT, title TEXT, status TEXT, tokens TEXT, root_service TEXT, workaround TEXT,
         fix_ref TEXT, owner TEXT, created_by TEXT, reopened INTEGER, created_at DOUBLE PRECISION,
         updated_at DOUBLE PRECISION, resolved_at DOUBLE PRECISION)""",
+    # bảo trì có kế hoạch: báo trước trên trang trạng thái, silence Alertmanager, loại khỏi SLA nếu báo trước đủ hạn
+    """CREATE TABLE IF NOT EXISTS maintenance_windows (
+        id TEXT PRIMARY KEY, title TEXT, message TEXT, services TEXT, starts DOUBLE PRECISION, ends DOUBLE PRECISION,
+        silence_id TEXT, created_by TEXT, created_at DOUBLE PRECISION, cancelled_at DOUBLE PRECISION, completed_early_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
@@ -308,6 +312,23 @@ class IncidentStore:
 
     def drills(self, limit: int = 200) -> list[dict]:
         return self._exec("SELECT * FROM drills ORDER BY started_at DESC LIMIT ?", (limit,))
+
+    # ---- bảo trì có kế hoạch ----
+    def add_maintenance(self, **fields) -> dict:
+        row = {"id": uuid7(), **fields}
+        self._insert("maintenance_windows", row)
+        return self.get_maintenance(row["id"])
+
+    def get_maintenance(self, id_: str) -> dict | None:
+        rows = self._exec("SELECT * FROM maintenance_windows WHERE id = ?", (id_,))
+        return self._dec(rows[0]) if rows else None
+
+    def update_maintenance(self, id_: str, **fields) -> dict | None:
+        self._update("maintenance_windows", id_, fields)
+        return self.get_maintenance(id_)
+
+    def maintenance_windows(self, since: float = 0.0) -> list[dict]:
+        return [self._dec(r) for r in self._exec("SELECT * FROM maintenance_windows WHERE ends >= ? ORDER BY starts", (since,))]
 
     # ---- vấn đề (problem management) ----
     def add_problem(self, **fields) -> dict:

@@ -1,9 +1,9 @@
 'use client';
 
-import { CheckCircle2, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Wrench } from 'lucide-react';
 import { Badge, Card, EmptyState, PageTitle, QueryView, SectionTitle, cn } from '@/components/ui';
 import { formatDate } from '@/lib/format';
-import { LEVEL, PHASE, usePublicStatus, type PublicIncident, type StatusDay } from '@/lib/status';
+import { LEVEL, PHASE, usePublicStatus, type PublicIncident, type PublicMaintenance, type StatusDay } from '@/lib/status';
 
 const DAY_COLOR: Record<StatusDay['status'], string> = { operational: 'bg-success', degraded: 'bg-warning', outage: 'bg-danger' };
 
@@ -21,10 +21,17 @@ export default function StatusPage() {
               <Card className={cn('flex items-start gap-3 p-4', ok ? 'border-success' : 'border-warning')}>
                 {ok ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-success" /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" />}
                 <div className="min-w-0">
-                  <p className="font-semibold">{ok ? 'Mọi chức năng đang hoạt động bình thường' : 'Một số chức năng đang gặp sự cố'}</p>
+                  <p className="font-semibold">{ok ? 'Mọi chức năng đang hoạt động bình thường' : d.overall === 'under_maintenance' ? 'Một số chức năng đang bảo trì theo kế hoạch' : 'Một số chức năng đang gặp sự cố'}</p>
                   <p className="text-xs text-muted">Cập nhật {formatDate(d.updated_at)}</p>
                 </div>
               </Card>
+
+              {(d.maintenance ?? []).length > 0 && (
+                <section>
+                  <SectionTitle>Bảo trì có kế hoạch</SectionTitle>
+                  <div className="flex flex-col gap-3">{(d.maintenance ?? []).map((m) => <MaintenanceCard key={m.id} m={m} />)}</div>
+                </section>
+              )}
 
               {d.active_incidents.length > 0 && (
                 <section>
@@ -72,6 +79,23 @@ export default function StatusPage() {
         }}
       </QueryView>
     </div>
+  );
+}
+
+function MaintenanceCard({ m }: { m: PublicMaintenance }) {
+  const now = m.status === 'in_progress';
+  return (
+    <Card className={cn('flex items-start gap-3 p-4', now && 'border-info')}>
+      <Wrench className="mt-0.5 size-5 shrink-0 text-info" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 break-words font-medium">{m.title}</p>
+          <Badge tone={now ? 'info' : 'neutral'}>{now ? 'Đang bảo trì' : 'Sắp diễn ra'}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted break-words">{formatDate(m.starts)} → {formatDate(m.ends)} · {m.components.join(', ')}</p>
+        <p className="mt-2 text-sm break-words">{m.message}</p>
+      </div>
+    </Card>
   );
 }
 
