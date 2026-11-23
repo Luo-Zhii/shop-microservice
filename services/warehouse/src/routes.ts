@@ -5,6 +5,7 @@ import { cycleCountPlan, replenishment } from './replenishment';
 import {
   allocatePick, approveCount, chargeStorage, confirmPick, countSheet, createReceipt, receive, startCount, stockLedgerReport, submitCount,
 } from './stock';
+import { candidates as spotCandidates, reportMissing, startSpotCount } from './spot-count';
 
 export interface RouteDeps {
   pool: Pool;
@@ -104,6 +105,19 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   app.post<{ Params: { id: string } }>('/counts/:id/reject', staff, async (req) =>
     withTx(pool, (c) => approveCount(c, req.params.id, actor(req), deps.countThreshold, false)));
   app.get('/counts', staff, async () => ({ items: (await pool.query('SELECT * FROM counts ORDER BY created_at DESC LIMIT 100')).rows }));
+
+  // ---- kiểm kê đột xuất theo tín hiệu ----
+  app.post<{ Params: { id: string } }>('/picks/:id/missing', staff, async (req) => {
+    const b = z.object({ lotId: id, missingQty: z.number().int().min(1).max(100_000) }).parse(req.body);
+    return withTx(pool, (c) => reportMissing(c, req.params.id, b.lotId, b.missingQty, actor(req)));
+  });
+  app.post('/counts/spot', staff, async (req, reply) => {
+    const b = z.object({ warehouse: z.string().min(2).max(10), shopId: id, skuId: id, reason: z.string().min(3).max(200) }).parse(req.body);
+    const r = await withTx(pool, (c) => startSpotCount(c, { ...b, actor: actor(req) }));
+    reply.code(r.created ? 201 : 200);
+    return r;
+  });
+  app.get('/reports/exception-counts', staff, async () => ({ items: await spotCandidates(pool, deps.reconciler?.last() ?? null) }));
 
   // ---- báo cáo ----
   app.get('/reports/stock-ledger', staff, async (req) => {

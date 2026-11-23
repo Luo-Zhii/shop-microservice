@@ -7,6 +7,7 @@ import { registerConsumers } from './consumers';
 import { createReconciler, type InvStock } from './reconcile';
 import { registerRoutes } from './routes';
 import { refreshPickSla } from './sla';
+import { refreshSpotGauge } from './spot-count';
 
 async function main() {
   const svc = createService(cfg.SERVICE_NAME, { corsOrigins: cfg.CORS_ORIGINS });
@@ -31,7 +32,10 @@ async function main() {
     },
   });
   registerRoutes(app, { pool, auth, countThreshold: cfg.COUNT_APPROVAL_THRESHOLD, storageRate: cfg.STORAGE_FEE_PER_UNIT_DAY, reconciler, cutoffHour: cfg.PICK_CUTOFF_HOUR });
-  const slaTimer = setInterval(() => { refreshPickSla(pool, new Date(), cfg.PICK_CUTOFF_HOUR).catch((err) => log.warn({ err }, 'tính SLA xuất kho lỗi')); }, 60_000);
+  const slaTimer = setInterval(() => {
+    refreshPickSla(pool, new Date(), cfg.PICK_CUTOFF_HOUR).catch((err) => log.warn({ err }, 'tính SLA xuất kho lỗi'));
+    refreshSpotGauge(pool).catch((err) => log.warn({ err }, 'đếm phiếu kiểm kê đột xuất lỗi'));
+  }, 60_000);
   const reconTimer = cfg.RECONCILE_INTERVAL_SECONDS > 0
     ? setInterval(() => { reconciler.runOnce().then((r) => { if (!r.ok) log.warn({ persistent: r.persistent, error: r.error }, 'lệch tồn với inventory'); }); }, cfg.RECONCILE_INTERVAL_SECONDS * 1000)
     : null;

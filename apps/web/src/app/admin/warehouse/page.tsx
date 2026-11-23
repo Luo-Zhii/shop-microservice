@@ -48,7 +48,7 @@ function Replenishment() {
 }
 interface ReceiptLine { sku_id: string; qty_expected: number; qty_received: number | null; qty_damaged: number; unit_cost: number }
 interface Receipt { id: string; receipt_no: string; warehouse: string; shop_id: string; status: string; created_at: string; lines: ReceiptLine[] }
-interface Pick { id: string; order_id: string; status: string; short_reason: string | null; created_at: string; lines: { sku_id: string; bin: string; qty: number }[] | null;
+interface Pick { id: string; order_id: string; status: string; short_reason: string | null; created_at: string; lines: { lot_id: string; sku_id: string; bin: string; qty: number }[] | null;
   sla?: { dueAt: string; minutesLeft: number; state: 'ok' | 'due_soon' | 'overdue' } }
 /** Hạn xuất theo giờ cắt đơn: quá hạn đỏ, ≤ 2 giờ vàng, còn lại xanh. */
 function SlaBadge({ sla }: { sla?: Pick['sla'] }) {
@@ -58,7 +58,7 @@ function SlaBadge({ sla }: { sla?: Pick['sla'] }) {
   const tone: Tone = sla.state === 'overdue' ? 'danger' : sla.state === 'due_soon' ? 'warning' : 'success';
   return <span title={`Hạn xuất ${formatDate(sla.dueAt)}`}><Badge tone={tone}>{sla.state === 'overdue' ? `Quá hạn ${dur}` : `Còn ${dur}`}</Badge></span>;
 }
-interface Count { id: string; count_no: string; warehouse: string; bin_prefix: string; status: string; variance_value: number | null; created_by: string; approved_by: string | null }
+interface Count { id: string; count_no: string; warehouse: string; bin_prefix: string; status: string; kind?: 'CYCLE' | 'SPOT'; reason?: string | null; sku_id?: string | null; variance_value: number | null; created_by: string; approved_by: string | null }
 interface SheetLine { lot_id: string; bin: string; sku_id: string; counted_qty: number | null }
 
 const ST: Record<string, Tone> = { EXPECTED: 'warning', RECEIVED: 'success', OPEN: 'warning', PICKED: 'success', SHORT: 'danger', CANCELLED: 'neutral',
@@ -193,9 +193,93 @@ function Receipts() {
   );
 }
 
+interface SpotCandidate { warehouse: string; shopId: string; skuId: string; signals: string[]; qty: number; value: number; openSpotCount: string | null }
+const SIGNAL_LABEL: Record<string, string> = { drift: 'Lệch với inventory', variance: 'Kiểm lần trước có chênh', pick_missing: 'Báo không thấy hàng' };
+
+/** Kiểm kê đột xuất theo tín hiệu: đếm NGAY SKU vừa có dấu hiệu sai, không chờ tới kỳ ABC. */
+function SpotCountCandidates() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['wh-spot'], queryFn: () => api.get<{ items: SpotCandidate[] }>('/warehouse/reports/exception-counts') });
+  const create = useMutation({
+    mutationFn: (c: SpotCandidate) => api.post<{ countNo: string; created: boolean }>('/warehouse/counts/spot',
+      { warehouse: c.warehouse, shopId: c.shopId, skuId: c.skuId, reason: c.signals.join('; ').slice(0, 200) }),
+    onSuccess: (r) => {
+      toast.success(r.created ? `Đã tạo phiếu đột xuất ${r.countNo}` : `Đã gộp vào phiếu đang mở ${r.countNo}`);
+      void qc.invalidateQueries({ queryKey: ['wh-spot'] });
+      void qc.invalidateQueries({ queryKey: ['wh-counts'] });
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const items = q.data?.items ?? [];
+  if (!items.length) return null;
+  return (
+    <section className="mb-4">
+      <SectionTitle>Kiểm kê đột xuất ({items.length} SKU có tín hiệu)</SectionTitle>
+      <ul className="flex flex-col gap-2">
+        {items.map((c) => (
+          <li key={`${c.warehouse}|${c.shopId}|${c.skuId}`}>
+            <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3 text-sm sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <p className="break-all font-mono text-xs">{c.warehouse} · {c.skuId}</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {c.signals.map((s) => <Badge key={s} tone={s.startsWith('pick_missing') ? 'danger' : 'warning'}>{SIGNAL_LABEL[s.split(/[ :]/)[0]] ?? s}{s.includes(' ') ? ` ${s.slice(s.indexOf(' ') + 1)}` : ''}</Badge>)}
+                </div>
+                <p className="mt-1 text-xs text-muted">Tồn hệ thống {formatNumber(c.qty)} · giá trị {formatVND(c.value)}</p>
+              </div>
+              {c.openSpotCount
+                ? <Badge tone="info">Đang đếm {c.openSpotCount}</Badge>
+                : <Button size="sm" className="w-full sm:w-auto" onClick={() => create.mutate(c)} disabled={create.isPending}>Tạo phiếu đột xuất</Button>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Người lấy hàng báo không thấy đủ hàng tại kệ → phiếu SHORT + tự tạo phiếu kiểm kê đột xuất cho SKU đó. */
+function ReportMissing({ pick, onClose }: { pick: Pick; onClose: () => void }) {
+  const qc = useQueryClient();
+  const lines = pick.lines ?? [];
+  const [lot, setLot] = useState(lines[0]?.lot_id ?? '');
+  const [n, setN] = useState('1');
+  const max = lines.find((l) => l.lot_id === lot)?.qty ?? 1;
+  const send = useMutation({
+    mutationFn: () => api.post<{ count: { countNo: string; created: boolean } }>(`/warehouse/picks/${pick.id}/missing`, { lotId: lot, missingQty: Number(n) }),
+    onSuccess: (r) => {
+      toast.success(`Phiếu chuyển Thiếu hàng; ${r.count.created ? 'đã tạo' : 'đã gộp vào'} phiếu kiểm kê ${r.count.countNo}`);
+      void qc.invalidateQueries({ queryKey: ['wh-picks'] });
+      void qc.invalidateQueries({ queryKey: ['wh-counts'] });
+      onClose();
+    },
+    onError: (e) => toast.error(errorMessage(e)),
+  });
+  const qty = Number(n);
+  return (
+    <Sheet open onClose={onClose} title="Báo không thấy hàng tại kệ"
+      footer={<>
+        <Button variant="outline" onClick={onClose}>Huỷ</Button>
+        <Button variant="danger" onClick={() => send.mutate()} disabled={send.isPending || !lot || !(qty >= 1 && qty <= max)}>Báo thiếu</Button>
+      </>}>
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-muted">Phiếu sẽ chuyển sang Thiếu hàng (nhả giữ chỗ, CS xử lý đơn) và hệ thống tạo ngay phiếu kiểm kê đột xuất cho SKU này trên mọi kệ.</p>
+        <Field label="Vị trí / SKU" htmlFor="rm-lot">
+          <Select id="rm-lot" value={lot} onChange={(e) => setLot(e.target.value)}>
+            {lines.map((l) => <option key={l.lot_id} value={l.lot_id}>{l.bin} · {l.sku_id} × {l.qty}</option>)}
+          </Select>
+        </Field>
+        <Field label={`Số lượng không thấy (1–${max})`} htmlFor="rm-n">
+          <Input id="rm-n" type="number" inputMode="numeric" min={1} max={max} value={n} onChange={(e) => setN(e.target.value)} />
+        </Field>
+      </div>
+    </Sheet>
+  );
+}
+
 function Picks() {
   const qc = useQueryClient();
   const [status, setStatus] = useState('OPEN');
+  const [missing, setMissing] = useState<Pick | null>(null);
   const q = useQuery({ queryKey: ['wh-picks', status], queryFn: () => api.get<{ items: Pick[] }>('/warehouse/picks', { status }) });
   const confirm = useMutation({
     mutationFn: (id: string) => api.post<{ cogs: number }>(`/warehouse/picks/${id}/confirm`),
@@ -217,9 +301,13 @@ function Picks() {
               ) },
               { key: 'at', header: 'Tạo lúc', cell: (p) => formatDate(p.created_at) },
             ]}
-            actions={(p) => p.status === 'OPEN' && <Button size="sm" onClick={() => confirm.mutate(p.id)} disabled={confirm.isPending}><PackageCheck className="size-4" />Đã lấy</Button>} />
+            actions={(p) => p.status === 'OPEN' && <>
+              <Button size="sm" onClick={() => confirm.mutate(p.id)} disabled={confirm.isPending}><PackageCheck className="size-4" />Đã lấy</Button>
+              <Button size="sm" variant="outline" onClick={() => setMissing(p)}>Không thấy hàng</Button>
+            </>} />
         )}
       </QueryView>
+      {missing && <ReportMissing pick={missing} onClose={() => setMissing(null)} />}
     </>
   );
 }
@@ -263,6 +351,7 @@ function Counts() {
         <Field label="Dãy / kệ (tiền tố vị trí)" htmlFor="pf"><Input id="pf" placeholder="vd A-01 (trống = cả kho)" autoCapitalize="characters" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase())} /></Field>
         <Button onClick={() => start.mutate()} disabled={start.isPending}><ClipboardCheck className="size-4" />Tạo phiếu kiểm kê</Button>
       </div>
+      <SpotCountCandidates />
       <CycleCountPlan warehouse={wh} onStart={(bin) => startAt.mutate(bin)} busy={startAt.isPending} />
       <QueryView q={q} isEmpty={(d) => !d.items.length} empty={<EmptyState title="Chưa có phiếu kiểm kê" />}>
         {(d) => (
@@ -270,7 +359,9 @@ function Counts() {
             columns={[
               { key: 'no', header: 'Phiếu', primary: true, cell: (c) => <span className="font-mono">{c.count_no}</span> },
               { key: 'st', header: 'Trạng thái', badge: true, cell: (c) => <Badge tone={ST[c.status]}>{c.status}</Badge> },
-              { key: 'scope', header: 'Phạm vi', cell: (c) => `${c.warehouse} ${c.bin_prefix || '(cả kho)'}` },
+              { key: 'scope', header: 'Phạm vi', cell: (c) => (c.kind === 'SPOT'
+                ? <span className="break-words"><Badge tone="danger">Đột xuất</Badge> {c.warehouse} · <span className="font-mono text-xs">{c.sku_id}</span>{c.reason ? <span className="block text-xs text-muted">{c.reason}</span> : null}</span>
+                : `${c.warehouse} ${c.bin_prefix || '(cả kho)'}`) },
               { key: 'var', header: 'Chênh lệch', align: 'right', cell: (c) => (c.variance_value == null ? '—' : <span className={c.variance_value < 0 ? 'text-danger' : ''}>{formatVND(c.variance_value)}</span>) },
               { key: 'by', header: 'Người đếm / duyệt', cell: (c) => `${c.created_by}${c.approved_by ? ` / ${c.approved_by}` : ''}` },
             ]}
