@@ -219,6 +219,13 @@ change_freeze:
   before_minutes: 120
   after_minutes: 60
 
+# Khoá sổ cuối kỳ (period_close.py): [00:00 ngày cuối tháng, 23:59 ngày close_days tháng sau] giờ VN — deploy chạm
+# các service tài chính bị ép duyệt tay như đóng băng flash sale; /period-close liệt kê việc phải xong trước khi khoá.
+period_close:
+  enabled: true
+  close_days: 3
+  services: [accounting, payment, order, warehouse]
+
 capacity:
   step_seconds: 900
   lookback_days: 15             # ≥ 14 ngày → khử mùa vụ tuần (cuối tuần) trước Holt-Winters ngày

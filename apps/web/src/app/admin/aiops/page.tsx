@@ -488,6 +488,50 @@ function FreezeWindows() {
   );
 }
 
+interface CloseCheck { key: string; title: string; status: 'ok' | 'warn' | 'fail' | 'unknown'; value: number | null; hint: string }
+interface PeriodCloseStatus { period: string; services: string[]; close_days: number; active: boolean; ready: boolean; fail: number; warn: number; unknown: number;
+  windows: { period: string; starts: number; ends: number; active: boolean }[]; checks: CloseCheck[] }
+
+const CLOSE_TONE: Record<CloseCheck['status'], Tone> = { ok: 'success', warn: 'warning', fail: 'danger', unknown: 'neutral' };
+const CLOSE_LABEL: Record<CloseCheck['status'], string> = { ok: 'Đạt', warn: 'Lưu ý', fail: 'Chặn', unknown: 'Chưa rõ' };
+
+/** Khoá sổ cuối kỳ: khung đóng băng deploy chạm service tài chính + danh sách kiểm sẵn sàng khoá sổ từ số liệu vận hành. */
+function PeriodClose() {
+  const q = useQuery({ queryKey: ['aiops-period-close'], retry: false, refetchInterval: 300_000,
+    queryFn: () => api.get<PeriodCloseStatus>('/aiops/period-close') });
+  const d = q.data;
+  if (!d) return null;
+  const ts = (t: number) => formatDate(new Date(t * 1000).toISOString());
+  return (
+    <Card className={'flex flex-col gap-3 p-3 text-sm' + (d.active ? ' border-warning' : '')}>
+      <div className="flex flex-wrap items-center gap-2">
+        <FileText className="size-4 shrink-0 text-info" />
+        <b className="min-w-0 flex-1 break-words">Khoá sổ kỳ {d.period}{d.active ? ' — đang trong khung khoá sổ' : ''}</b>
+        <Badge tone={d.ready ? 'success' : 'danger'}>{d.ready ? 'Sẵn sàng khoá' : 'Chưa sẵn sàng'}</Badge>
+      </div>
+      <ul className="flex flex-col gap-1 pl-6">
+        {d.windows.map((w) => (
+          <li key={w.period} className="break-words">
+            {w.active ? <b>Đang đóng băng</b> : 'Sắp tới'}: {ts(w.starts)} → {ts(w.ends)} <span className="text-muted">· kỳ {w.period}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="pl-6 text-xs text-muted break-words">Deploy chạm {d.services.join(', ')} trong khung (ngày cuối tháng → ngày {d.close_days} tháng sau, giờ VN) bị ép duyệt tay; khẩn cấp có ghi audit. Danh sách dưới kiểm đường ống dữ liệu vận hành, bổ sung checklist sổ sách ở trang Kế toán.</p>
+      <ul className="flex flex-col divide-y divide-border">
+        {d.checks.map((c) => (
+          <li key={c.key} className="flex items-start gap-2 py-2">
+            <Badge tone={CLOSE_TONE[c.status]} className="mt-0.5">{CLOSE_LABEL[c.status]}</Badge>
+            <div className="min-w-0 flex-1">
+              <div className="break-words">{c.title}{c.value != null && <b className="ml-1">{formatNumber(c.value)}{c.key === 'reconcile_fresh' ? ' giờ trước' : ''}</b>}</div>
+              {c.status !== 'ok' && <div className="break-words text-xs text-muted">{c.hint}</div>}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 /** Vòng học chấm rủi ro thay đổi: deploy thật (promote.yml ghi) → nhãn theo RCA sau 2h → học lại trọng số có cổng log-loss. */
 function Changes() {
   const qc = useQueryClient();
@@ -504,6 +548,7 @@ function Changes() {
   return (
     <div className="flex flex-col gap-4">
       <FreezeWindows />
+      <PeriodClose />
       <QueryView q={q} isEmpty={(d) => !d.deploys}
         empty={<EmptyState title="Chưa có deploy nào được ghi" description="Đặt biến AIOPS_URL cho workflow promote để mỗi lần promote ghi diff thật vào vòng học." />}>
         {(d) => (

@@ -645,6 +645,11 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         """Đóng băng thay đổi quanh flash sale (như các sàn lớn dịp 11/11, Black Friday): deploy chạm service trên
         đường mua hàng trong [bắt đầu − before, kết thúc + after] → cần duyệt tay. Không đọc được lịch → không chặn
         (fail-open: mất promotion không được làm tê liệt cả quy trình release), nhưng ghi rõ trong kết quả."""
+        from .period_close import freeze as period_freeze
+
+        pc = period_freeze(at, services, settings.raw.get("period_close"))   # đóng sổ kỳ: lịch suy từ ngày tháng, không fail-open
+        if pc:
+            return pc
         cfg = settings.raw.get("change_freeze") or {}
         if cfg.get("enabled") is False:
             return None
@@ -660,7 +665,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return {"active": False, "error": "không đọc được lịch flash sale — chưa áp đóng băng"}
         for s0, s1 in sorted(sales):
             if s0 - before <= at <= s1 + after:
-                return {"active": True, "services": hit, "sale_starts": s0, "sale_ends": s1,
+                return {"active": True, "kind": "flash_sale", "services": hit, "sale_starts": s0, "sale_ends": s1,
                         "window": [s0 - before, s1 + after]}
         return None
 
@@ -683,6 +688,33 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         items = [{"starts": iso(s0 - before), "ends": iso(s1 + after), "sale_starts": iso(s0), "sale_ends": iso(s1),
                   "active": s0 - before <= now <= s1 + after} for s0, s1 in sorted(sales) if s1 + after >= now]
         return {"enabled": True, "services": scope, "items": items}
+
+    @app.get("/period-close")
+    def period_close_status(period: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")):
+        """Khung khoá sổ (đang/kế tiếp) + danh sách kiểm sẵn sàng khoá sổ cho kỳ đang khoá (hoặc kỳ chỉ định)."""
+        from .period_close import _cfg, checks, summary, upcoming, window_at
+        from .statuspage import month_sla
+
+        cfg, now = _cfg(settings.raw.get("period_close")), responder.clock()
+        cur = window_at(now, cfg)
+        p = period or (cur["period"] if cur else upcoming(now, cfg)[-1]["period"])
+
+        def q(expr: str) -> float | None:
+            if responder.prom is None:
+                return None
+            try:
+                r = responder.prom.query(expr)
+                return float(r[0]["value"][1]) if r else None   # gauge không có series = service không báo → chưa rõ
+            except Exception as e:  # noqa: BLE001 - Prometheus lỗi → mục "unknown", không coi là đạt
+                log.warning("period-close %s: %s", expr, e)
+                return None
+
+        sp = settings.raw.get("status_page") or {}
+        sla = month_sla(responder.store, sp.get("components") or [], sp.get("sla") or {}, p, now)
+        due = [it["component"] for it in sla["items"] if not it["met"] and it["credit_pct"] > 0] if sla.get("final") else None
+        items = checks(q, responder.store, p, now, cfg["services"], due)
+        return {"period": p, "services": cfg["services"], "close_days": cfg["close_days"], "windows": upcoming(now, cfg),
+                "active": bool(cur), "checks": items, **summary(items)}
 
     # ---------------------------------------------------------------- rủi ro thay đổi (CD gọi trước khi rollout)
     @app.post("/change-risk")
@@ -718,8 +750,13 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         r = score(ch.features(), weights, budget=budget or None)
         fz = change_freeze(when.timestamp() if when else responder.clock(), ch.services())
         if fz and fz.get("active"):
-            mins = round((fz["sale_starts"] - (when.timestamp() if when else responder.clock())) / 60)
-            when_txt = f"flash sale bắt đầu sau {mins} phút" if mins > 0 else "đang trong/ngay sau flash sale"
+            if fz["kind"] == "period_close":
+                from .period_close import VN
+
+                when_txt = f"đang khoá sổ kỳ {fz['period']} (tới {datetime.fromtimestamp(fz['window'][1], VN):%d/%m %H:%M})"
+            else:
+                mins = round((fz["sale_starts"] - (when.timestamp() if when else responder.clock())) / 60)
+                when_txt = f"flash sale bắt đầu sau {mins} phút" if mins > 0 else "đang trong/ngay sau flash sale"
             if body.get("emergency"):
                 fz["bypassed"] = True
                 r["reasons"].insert(0, f"KHẨN CẤP: bỏ qua đóng băng ({when_txt}) — bắt buộc postmortem")

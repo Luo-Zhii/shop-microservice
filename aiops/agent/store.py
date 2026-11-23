@@ -310,6 +310,9 @@ class IncidentStore:
         self._insert("audit", row)
         return row
 
+    def audit_events(self, event: str, limit: int = 500) -> list[dict]:
+        return [self._dec(r) for r in self._exec("SELECT * FROM audit WHERE event = ? ORDER BY ts DESC LIMIT ?", (event, limit))]
+
     def audit_for(self, incident_id: str) -> list[dict]:
         return [self._dec(r) for r in self._exec("SELECT * FROM audit WHERE incident_id = ? ORDER BY ts", (incident_id,))]
 
