@@ -4,6 +4,7 @@ title: Hành trình mua hàng tổng hợp hỏng / lệch giữa hai cụm
 services: [api-gateway, cart, catalog, search, synthetic]
 alerts: [SyntheticStepFailing, SyntheticLocationDivergence, SyntheticProbeStale, ShopNowSyntheticJourneyBurn]
 tags: [synthetic, hybrid, network, ingress, journey]
+chaos: http-abort-catalog
 ---
 ## Triệu chứng
 Robot tổng hợp báo một bước hỏng (home/search/product/giỏ), hoặc hỏng ở một cụm còn cụm kia vẫn chạy.

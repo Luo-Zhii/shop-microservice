@@ -4,6 +4,7 @@ title: Sự kiện Kafka vào DLQ tăng / consumer xử lý lỗi
 services: [warehouse, accounting, inventory, notification, search, ai-service]
 alerts: [ShopNowKafkaDLQRising, WarehouseOutboxBacklog]
 tags: [kafka, dlq, consumer, outbox, canary]
+chaos: kafka-network-partition
 ---
 ## Triệu chứng
 `kafka_messages_consumed_total{result="dlq"}` tăng, outbox_pending tăng, dữ liệu giữa các service bắt đầu lệch.

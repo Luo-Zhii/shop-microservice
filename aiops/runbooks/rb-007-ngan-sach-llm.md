@@ -4,6 +4,7 @@ title: Chatbot về chế độ FAQ — hết ngân sách LLM hoặc kill switch
 services: [ai-service]
 alerts: [LlmBudgetLow, LlmDegraded]
 tags: [llm, finops, budget, chatbot, kill-switch]
+chaos: null          # diễn tập trên bàn (tabletop) — không có thí nghiệm chaos tái hiện
 ---
 ## Triệu chứng
 Chatbot trả lời theo FAQ/mẫu; ai_llm_degraded{reason} = 1; ngân sách ngày còn < 20%.

@@ -4,6 +4,7 @@ title: Quá tải — độ trễ p95 và CPU cao, không có deploy mới
 services: [api-gateway, catalog, search, ai-service, order]
 alerts: [ShopNowHighLatencyP95, CPUThrottlingHigh, AIOpsAnomaly, ShopNowCheckoutLatencyBurn]
 tags: [saturation, scale, kill-switch, flash-sale, profiling]
+chaos: cpu-stress-inventory
 ---
 ## Triệu chứng
 p95 tăng, CPU gần limit, rps tăng (thường lúc flash sale); không có triển khai trong 60 phút.

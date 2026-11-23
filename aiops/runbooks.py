@@ -86,3 +86,14 @@ def for_incident(inc: dict, symptoms: list[str] | None = None, k: int = 3) -> li
     svcs = [x for x in {inc.get("service"), root} if x]
     query = " ".join([*svcs, *alerts, *(symptoms or []), inc.get("title") or ""])
     return search(query, services=svcs, alerts=alerts, k=k)
+
+
+def catalog(directory: Path = DEFAULT_DIR) -> list[dict]:
+    """Danh mục runbook (front matter) — dùng cho kế hoạch diễn tập."""
+    out = []
+    for f in sorted(directory.glob("rb-*.md")):
+        m = FRONT.match(f.read_text(encoding="utf-8"))
+        meta = yaml.safe_load(m.group(1)) if m else {}
+        out.append({"id": meta.get("id", f.stem), "title": meta.get("title", f.stem), "file": f"aiops/runbooks/{f.name}",
+                    "services": list(meta.get("services") or []), "chaos": meta.get("chaos")})
+    return out

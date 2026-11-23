@@ -4,6 +4,7 @@ title: Phiếu lấy hàng quá hạn xuất kho (SLA giờ cắt đơn)
 services: [warehouse]
 alerts: [WarehousePickSlaBreach, WarehousePickBacklogRising]
 tags: [warehouse, sla, cut-off, picking, operations]
+chaos: network-delay-warehouse
 ---
 ## Triệu chứng
 Có phiếu quá hạn xuất (đơn trước 14h phải xuất trong ngày, sau 14h trước 12h hôm sau); KPI pick_overdue tăng.

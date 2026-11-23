@@ -404,6 +404,82 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(503, "UNAVAILABLE", "chưa cấu hình Prometheus")
         return analyze(responder.prom, responder.clock(), ((settings.raw.get("error_budget") or {}).get("slos") or {}))
 
+    # ---------------------------------------------------------------- diễn tập sự cố (game day)
+    def _drill_view(d: dict) -> dict:
+        t0 = d.get("started_at")
+        dur = lambda k: None if d.get(k) is None or t0 is None else round(float(d[k]) - float(t0), 1)  # noqa: E731
+        return {**d, "ttd_s": dur("detected_at"), "ttm_s": dur("mitigated_at"), "ttr_s": dur("resolved_at")}
+
+    @app.get("/drills/plan")
+    def drills_plan():
+        """Runbook nào cần diễn tập: chưa từng tập / quá chu kỳ (mặc định 90 ngày) lên đầu; kèm lệnh chạy thí nghiệm chaos."""
+        from .drills import plan
+        from .runbooks import catalog
+
+        cad = int((settings.raw.get("drills") or {}).get("cadence_days", 90))
+        return plan(catalog(), responder.store.drills(), responder.clock(), cad)
+
+    @app.get("/drills")
+    def drills_list():
+        from .drills import summary
+
+        items = responder.store.drills()
+        incs = responder.store.list_incidents(since=responder.clock() - 90 * 86400, limit=5000)
+        return {"items": [_drill_view(d) for d in items], "summary": summary(items, incs)}
+
+    @app.post("/drills")
+    async def drill_start(request: Request):
+        from .runbooks import catalog
+
+        body = await request.json()
+        rb = next((r for r in catalog() if r["id"] == body.get("runbook")), None)
+        if rb is None:
+            return err(404, "NOT_FOUND", "không có runbook")
+        if any(d["status"] == "running" for d in responder.store.drills(50)):
+            return err(409, "DRILL_RUNNING", "đang có buổi diễn tập — kết thúc trước khi bắt đầu buổi mới")
+        env = str(body.get("environment") or "staging")
+        if env not in ("staging", "dev", "prod-onprem", "prod-aws"):
+            return err(400, "VALIDATION_ERROR", "môi trường không hợp lệ")
+        actor = request.headers.get("x-actor", "api")
+        d = responder.store.add_drill(runbook=rb["id"], chaos=rb.get("chaos"), mode="chaos" if rb.get("chaos") else "tabletop",
+                                      environment=env, started_by=actor, started_at=responder.clock())
+        responder.store.audit(actor, "drill_started", details={"drill": d["id"], "runbook": rb["id"], "environment": env})
+        return _drill_view(d)
+
+    @app.post("/drills/{drill_id}/mark")
+    async def drill_mark(drill_id: str, request: Request):
+        """Ghi mốc phát hiện → giảm thiểu → khôi phục, đúng thứ tự (không ghi đè, không nhảy cóc)."""
+        d = responder.store.get_drill(drill_id)
+        if d is None or d["status"] != "running":
+            return err(409, "NOT_RUNNING", "buổi diễn tập không ở trạng thái đang chạy")
+        ev = (await request.json()).get("event")
+        order = ["detected_at", "mitigated_at", "resolved_at"]
+        key = f"{ev}_at"
+        if key not in order:
+            return err(400, "VALIDATION_ERROR", "event ∈ detected | mitigated | resolved")
+        if d.get(key) is not None:
+            return err(409, "ALREADY_MARKED", f"đã ghi mốc {ev}")
+        missing = [k for k in order[:order.index(key)] if d.get(k) is None]
+        if missing:
+            return err(409, "OUT_OF_ORDER", f"phải ghi {missing[0].removesuffix('_at')} trước")
+        return _drill_view(responder.store.update_drill(drill_id, **{key: responder.clock()}))
+
+    @app.post("/drills/{drill_id}/complete")
+    async def drill_complete(drill_id: str, request: Request):
+        d = responder.store.get_drill(drill_id)
+        if d is None or d["status"] != "running":
+            return err(409, "NOT_RUNNING", "buổi diễn tập không ở trạng thái đang chạy")
+        body = await request.json()
+        if body.get("abort"):
+            out = responder.store.update_drill(drill_id, status="aborted", notes=str(body.get("notes") or "")[:2000])
+        else:
+            if d.get("resolved_at") is None:
+                return err(409, "NOT_RESOLVED", "chưa ghi mốc khôi phục")
+            out = responder.store.update_drill(drill_id, status="completed", followed_runbook=int(bool(body.get("followed_runbook"))),
+                                               notes=str(body.get("notes") or "")[:2000])
+        responder.store.audit(request.headers.get("x-actor", "api"), "drill_" + out["status"], details={"drill": drill_id})
+        return _drill_view(out)
+
     @app.get("/sla/report")
     def sla_report(period: str | None = Query(None, pattern=r"^\d{4}-\d{2}$")):
         """Uptime tháng theo nhóm chức năng (cùng cách tính trang trạng thái) so với cam kết SLA với người bán."""

@@ -37,6 +37,11 @@ DDL = [
         id TEXT PRIMARY KEY, incident_id TEXT, status TEXT, impact TEXT, title TEXT, message TEXT, author TEXT,
         created_at DOUBLE PRECISION)""",
     "CREATE INDEX IF NOT EXISTS status_updates_incident_idx ON status_updates (incident_id, created_at)",
+    # diễn tập sự cố (game day) — chống "deskilling": mỗi runbook phải được tập định kỳ, đo TTD/TTM/TTR như sự cố thật
+    """CREATE TABLE IF NOT EXISTS drills (
+        id TEXT PRIMARY KEY, runbook TEXT, chaos TEXT, mode TEXT, environment TEXT, status TEXT, started_by TEXT, started_at DOUBLE PRECISION,
+        detected_at DOUBLE PRECISION, mitigated_at DOUBLE PRECISION, resolved_at DOUBLE PRECISION,
+        followed_runbook INTEGER, notes TEXT, created_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
@@ -237,6 +242,22 @@ class IncidentStore:
 
     def status_updates(self, incident_id: str) -> list[dict]:
         return self._exec("SELECT * FROM status_updates WHERE incident_id = ? ORDER BY created_at, id", (incident_id,))
+
+    def add_drill(self, **fields) -> dict:
+        row = {"id": uuid7(), "status": "running", "created_at": time.time(), **fields}
+        self._insert("drills", row)
+        return self.get_drill(row["id"])
+
+    def get_drill(self, id_: str) -> dict | None:
+        rows = self._exec("SELECT * FROM drills WHERE id = ?", (id_,))
+        return rows[0] if rows else None
+
+    def update_drill(self, id_: str, **fields) -> dict | None:
+        self._update("drills", id_, fields)
+        return self.get_drill(id_)
+
+    def drills(self, limit: int = 200) -> list[dict]:
+        return self._exec("SELECT * FROM drills ORDER BY started_at DESC LIMIT ?", (limit,))
 
     def audit(self, actor: str, event: str, incident_id: str | None = None, action_id: str | None = None,
               details: dict | None = None) -> dict:

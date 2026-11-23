@@ -178,6 +178,10 @@ finops:
   min_days: 3
   price: {cpu_core_hour: 0.031611, ram_gib_hour: 0.004237}
 
+# Diễn tập sự cố (drills.py): mỗi runbook phải được tập lại sau tối đa N ngày; mặc định chạy ở staging
+drills:
+  cadence_days: 90
+
 # Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
 business:
   default_aov_vnd: 350000

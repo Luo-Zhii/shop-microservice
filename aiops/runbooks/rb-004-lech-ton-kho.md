@@ -4,6 +4,7 @@ title: Lệch tồn kho giữa kho sàn và tồn để bán (nguy cơ bán vư�
 services: [warehouse, inventory]
 alerts: [StockDriftOversellRisk, StockDriftUndersell, StockReconcileStale]
 tags: [inventory, warehouse, reconcile, oversell, data-consistency]
+chaos: kafka-network-partition
 ---
 ## Triệu chứng
 Đối soát báo SKU lệch bền vững; loại "bán vượt tồn" = inventory nhiều hơn hàng thật trong kho.

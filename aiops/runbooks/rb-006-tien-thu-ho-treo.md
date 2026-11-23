@@ -4,6 +4,7 @@ title: Tiền thu hộ treo / COD chưa đối soát
 services: [accounting, order, payment, shipping]
 alerts: [EscrowFundsStale, CodUnreconciled]
 tags: [accounting, escrow, cod, saga, reconcile, finance]
+chaos: pod-kill-order
 ---
 ## Triệu chứng
 Checkout có số dư TK 3388 > 0 quá 15 ngày; hoặc tiền COD ĐVVC giữ (TK 1388) chưa đối soát vượt ngưỡng.

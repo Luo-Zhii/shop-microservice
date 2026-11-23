@@ -4,6 +4,7 @@ title: Lỗi 5xx tăng ngay sau khi triển khai
 services: [catalog, order, cart, search, api-gateway, payment, inventory, promotion, review]
 alerts: [ShopNowHighErrorRate, "ShopNow*AvailabilityBurn"]
 tags: [deploy, rollback, canary, 5xx]
+chaos: http-abort-catalog
 ---
 ## Triệu chứng
 Tỉ lệ 5xx của một service vượt 2–5% trong vài phút sau khi đổi image; canary có thể đã bị Argo Rollouts dừng.

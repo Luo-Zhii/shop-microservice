@@ -29,16 +29,17 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'drills' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'changes' && <Changes />}
+      {view === 'drills' && <Drills />}
       {view === 'digest' && <Digest />}
     </div>
   );
@@ -595,6 +596,66 @@ function RightSizing() {
             : <Button size="sm" variant="outline" onClick={() => pr.mutate(i.service)} disabled={pr.isPending}><GitPullRequest className="size-4" />Mở PR</Button>) },
         ]} />
     </section>
+  );
+}
+
+interface DrillPlanItem { id: string; title: string; file: string; chaos: string | null; mode: 'chaos' | 'tabletop'; days_since: number | null; overdue: boolean; command: string | null }
+interface Drill { id: string; runbook: string; chaos: string | null; mode: string; environment: string; status: 'running' | 'completed' | 'aborted'; started_by: string; started_at: number; detected_at: number | null; mitigated_at: number | null; resolved_at: number | null; followed_runbook: number | null; ttd_s: number | null; ttm_s: number | null; ttr_s: number | null }
+interface DrillSummary { drills: number; ttd_median_s: number | null; ttr_median_s: number | null; real_mttr_median_s: number | null; runbook_followed_ratio: number | null }
+const mins = (s: number | null | undefined) => (s == null ? '—' : s < 60 ? `${Math.round(s)} giây` : `${Math.round(s / 60)} phút`);
+
+/** Diễn tập sự cố (game day): chống mất kỹ năng khi tự động hoá nhiều — mỗi runbook tập lại định kỳ, đo như sự cố thật. */
+function Drills() {
+  const qc = useQueryClient();
+  const plan = useQuery({ queryKey: ['aiops-drill-plan'], queryFn: () => api.get<{ cadence_days: number; overdue: number; suggested: string[]; items: DrillPlanItem[] }>('/aiops/drills/plan') });
+  const list = useQuery({ queryKey: ['aiops-drills'], refetchInterval: 15_000, queryFn: () => api.get<{ items: Drill[]; summary: DrillSummary }>('/aiops/drills') });
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['aiops-drills'] }); void qc.invalidateQueries({ queryKey: ['aiops-drill-plan'] }); };
+  const start = useMutation({ mutationFn: (runbook: string) => api.post('/aiops/drills', { runbook, environment: 'staging' }), onSuccess: () => { toast.success('Đã bắt đầu diễn tập (staging)'); refresh(); } });
+  const mark = useMutation({ mutationFn: (a: { id: string; event: string }) => api.post(`/aiops/drills/${a.id}/mark`, { event: a.event }), onSuccess: refresh });
+  const done = useMutation({ mutationFn: (a: { id: string; followed: boolean }) => api.post(`/aiops/drills/${a.id}/complete`, { followed_runbook: a.followed }), onSuccess: () => { toast.success('Đã kết thúc diễn tập'); refresh(); } });
+  const running = list.data?.items.find((d) => d.status === 'running');
+  const sm = list.data?.summary;
+  const next = running ? (!running.detected_at ? 'detected' : !running.mitigated_at ? 'mitigated' : !running.resolved_at ? 'resolved' : null) : null;
+  const LABEL: Record<string, string> = { detected: 'Đã phát hiện', mitigated: 'Đã giảm thiểu', resolved: 'Đã khôi phục' };
+  return (
+    <div className="flex flex-col gap-4">
+      {sm && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat label="Buổi đã tập" value={String(sm.drills)} />
+          <Stat label="Phát hiện (trung vị)" value={mins(sm.ttd_median_s)} />
+          <Stat label="Khôi phục diễn tập / thật" value={`${mins(sm.ttr_median_s)} / ${mins(sm.real_mttr_median_s)}`} />
+          <Stat label="Làm đúng runbook" value={sm.runbook_followed_ratio == null ? '—' : Math.round(sm.runbook_followed_ratio * 100) + '%'} />
+        </div>
+      )}
+      {running && (
+        <Card className="flex flex-col gap-2 border-warning p-3 text-sm">
+          <p className="break-words"><b>Đang diễn tập {running.runbook}</b> ({running.mode === 'chaos' ? `chaos ${running.chaos}` : 'trên bàn'}, {running.environment}) — bởi {running.started_by}</p>
+          <p className="text-muted">Phát hiện {mins(running.ttd_s)} · giảm thiểu {mins(running.ttm_s)} · khôi phục {mins(running.ttr_s)}</p>
+          <div className="flex flex-wrap gap-2">
+            {next && <Button onClick={() => mark.mutate({ id: running.id, event: next })} disabled={mark.isPending}>{LABEL[next]}</Button>}
+            {!next && <>
+              <Button onClick={() => done.mutate({ id: running.id, followed: true })} disabled={done.isPending}>Kết thúc — làm đúng runbook</Button>
+              <Button variant="outline" onClick={() => done.mutate({ id: running.id, followed: false })} disabled={done.isPending}>Kết thúc — lệch runbook</Button>
+            </>}
+          </div>
+        </Card>
+      )}
+      <QueryView q={plan}>
+        {(p) => (
+          <section>
+            <SectionTitle>Kế hoạch diễn tập (chu kỳ {p.cadence_days} ngày)</SectionTitle>
+            <p className="-mt-2 mb-3 text-sm text-muted">{p.overdue} runbook chưa tập hoặc quá chu kỳ. Diễn tập chạy ở staging để không làm sai MTTR/DORA/SLA của prod.</p>
+            <DataTable rows={p.items} rowKey={(i) => i.id}
+              columns={[
+                { key: 'rb', header: 'Runbook', primary: true, cell: (i) => <span className="break-words"><b>{i.id}</b> · {i.title}</span> },
+                { key: 'st', header: 'Trạng thái', badge: true, cell: (i) => (i.overdue ? <Badge tone="warning">{i.days_since == null ? 'Chưa từng tập' : `Quá hạn (${Math.round(i.days_since)} ngày)`}</Badge> : <Badge tone="success">{Math.round(i.days_since ?? 0)} ngày trước</Badge>) },
+                { key: 'how', header: 'Cách tập', hideOnMobile: true, cell: (i) => (i.command ? <code className="break-all text-xs">{i.command}</code> : <span className="text-muted">Diễn tập trên bàn</span>) },
+                { key: 'go', header: '', cell: (i) => <Button size="sm" variant="outline" disabled={!!running || start.isPending} onClick={() => start.mutate(i.id)}>Bắt đầu</Button> },
+              ]} />
+          </section>
+        )}
+      </QueryView>
+    </div>
   );
 }
 
