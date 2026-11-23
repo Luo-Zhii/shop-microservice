@@ -22,7 +22,12 @@ export interface QuoteOption {
   carrierName: string;
   fee: number;
   etaDays: number;
+  /** Lý do hãng đang bị tránh (SLO hãng vận chuyển — carrier-health.ts); vẫn liệt kê để người bán tự chọn nếu muốn. */
+  avoided?: string;
 }
+
+/** Bảng tránh hãng do carrier-health.ts cập nhật 5 phút/lần (trong bộ nhớ từng replica, tính lại từ DB nên tự nhất quán). */
+export const routing: { avoid: Map<Carrier, string>; updatedAt: number } = { avoid: new Map(), updatedAt: 0 };
 export interface Quote extends QuoteOption {
   zone: Zone;
   fromProvince: string;
@@ -43,7 +48,7 @@ export function standardFee(zone: Zone, weightGrams: number): number {
 
 const roundThousand = (n: number) => Math.round(n / 1_000) * 1_000;
 
-export function quote(fromProvince: string, toProvince: string, weightGrams: number): Quote {
+export function quote(fromProvince: string, toProvince: string, weightGrams: number, avoid: Map<Carrier, string> = routing.avoid): Quote {
   const from = resolveProvince(fromProvince);
   const to = resolveProvince(toProvince);
   if (!from) throw badRequest(`Không nhận diện được tỉnh/thành gửi: "${fromProvince}"`);
@@ -51,7 +56,13 @@ export function quote(fromProvince: string, toProvince: string, weightGrams: num
   const zone = zoneOf(from, to);
   const base = standardFee(zone, weightGrams);
   const options = (Object.entries(CARRIERS) as [Carrier, (typeof CARRIERS)[Carrier]][])
-    .map(([carrier, c]) => ({ carrier, carrierName: c.name, fee: roundThousand(base * c.factor[zone]), etaDays: BASE_ETA[zone] + c.etaDelta[zone] }))
+    .map(([carrier, c]): QuoteOption => {
+      const o: QuoteOption = { carrier, carrierName: c.name, fee: roundThousand(base * c.factor[zone]), etaDays: BASE_ETA[zone] + c.etaDelta[zone] };
+      const why = avoid.get(carrier);
+      return why ? { ...o, avoided: why } : o;
+    })
     .sort((a, b) => a.fee - b.fee || a.etaDays - b.etaDays);
-  return { ...options[0], zone, fromProvince: from.name, toProvince: to.name, options };
+  // hãng rẻ nhất KHÔNG bị tránh; nếu mọi hãng đều bị tránh thì vẫn chọn rẻ nhất (không bao giờ hết đường giao)
+  const best = options.find((o) => !o.avoided) ?? options[0];
+  return { ...best, zone, fromProvince: from.name, toProvince: to.name, options };
 }

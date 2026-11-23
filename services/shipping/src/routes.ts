@@ -12,7 +12,8 @@ import {
   type FastifyRequest,
   type Pool,
 } from '@shopnow/platform';
-import { quote } from './pricing';
+import { POLICY as CARRIER_POLICY, refreshCarrierHealth } from './carrier-health';
+import { quote, routing } from './pricing';
 import { getShipment, loadView, nextStatus, transition, type ShipmentRow, type Status } from './repo';
 
 export interface RouteDeps {
@@ -47,6 +48,12 @@ function verifySignature(secret: string, rawBody: string, header: string | undef
 export function registerRoutes(app: FastifyInstance, deps: RouteDeps) {
   const { pool, auth } = deps;
   const seller = { preHandler: auth.requireRole('seller') };
+
+  // SLO hãng vận chuyển: tính lại ngay khi xem (cũng chạy nền 5 phút/lần) — hãng xuống cấp bị tránh khi chọn hãng cho đơn mới
+  app.get('/admin/carriers/health', { preHandler: auth.requireRole('admin') }, async () => {
+    const items = await refreshCarrierHealth(pool);
+    return { policy: CARRIER_POLICY, updatedAt: new Date(routing.updatedAt).toISOString(), items };
+  });
 
   app.post('/quote', async (req) => {
     const b = quoteInput.parse(req.body);

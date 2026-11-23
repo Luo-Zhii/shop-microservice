@@ -6,6 +6,7 @@ import { cfg } from './config';
 import { catalogWeights, sellerClient } from './clients';
 import { registerRoutes, startAutoAdvance } from './routes';
 import { registerConsumers } from './consumers';
+import { startCarrierHealth } from './carrier-health';
 
 async function main() {
   const svc = createService(cfg.SERVICE_NAME, { corsOrigins: cfg.CORS_ORIGINS });
@@ -28,6 +29,7 @@ async function main() {
   });
 
   registerRoutes(app, { pool, auth, webhookSecret: cfg.CARRIER_WEBHOOK_SECRET, devSimulator: cfg.DEV_SIMULATOR });
+  const stopCarrierHealth = startCarrierHealth(pool, log);
   const stopSim = cfg.DEV_SIMULATOR ? startAutoAdvance(pool, cfg.DEV_AUTO_ADVANCE_SECONDS, log) : () => undefined;
   if (cfg.DEV_SIMULATOR) log.warn({ autoAdvanceSeconds: cfg.DEV_AUTO_ADVANCE_SECONDS }, 'DEV_SIMULATOR bật — có route /dev/*');
 
@@ -37,6 +39,7 @@ async function main() {
   });
   svc.onShutdown(async () => {
     stopSim();
+    stopCarrierHealth();
     stopRelay();
     await bus.stop();
     await pool.end();

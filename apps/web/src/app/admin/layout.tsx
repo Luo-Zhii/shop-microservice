@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, BookOpenCheck, ClipboardList, FolderTree, Image as ImageIcon, LayoutDashboard, MessageSquareOff, Package, ShieldAlert, Store, Ticket, Users, Wallet, Warehouse, Zap } from 'lucide-react';
+import { Activity, BookOpenCheck, ClipboardList, FolderTree, Image as ImageIcon, LayoutDashboard, MessageSquareOff, Package, ShieldAlert, Store, Ticket, Truck, Users, Wallet, Warehouse, Zap } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DashShell, type NavItem } from '@/components/dash-shell';
@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: '/admin/reviews', label: 'Kiểm duyệt đánh giá', icon: MessageSquareOff },
   { href: '/admin/accounting', label: 'Kế toán', icon: BookOpenCheck },
   { href: '/admin/warehouse', label: 'Kho sàn', icon: Warehouse },
+  { href: '/admin/shipping', label: 'Vận chuyển', icon: Truck },
   { href: '/admin/aiops', label: 'AIOps', icon: Activity },
 ];
 /** Vai trò nghiệp vụ chỉ thấy đúng phân hệ của mình (phân quyền chi tiết vẫn do backend kiểm). */
