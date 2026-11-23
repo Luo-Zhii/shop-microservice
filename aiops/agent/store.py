@@ -192,6 +192,9 @@ class IncidentStore:
         rows = self._exec("SELECT * FROM actions WHERE id = ?", (id_,))
         return self._dec(rows[0]) if rows else None
 
+    def list_actions(self, since: float = 0.0) -> list[dict]:
+        return [self._dec(r) for r in self._exec("SELECT * FROM actions WHERE created_at >= ? ORDER BY created_at", (since,))]
+
     def actions_for(self, incident_id: str) -> list[dict]:
         return [self._dec(r) for r in self._exec("SELECT * FROM actions WHERE incident_id = ? ORDER BY created_at",
                                                  (incident_id,))]

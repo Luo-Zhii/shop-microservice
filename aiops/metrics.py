@@ -40,3 +40,4 @@ SLO_BUDGET_ETA = Gauge("aiops_slo_budget_eta_hours", "Dự báo số giờ tới
 VULN_OPEN = Gauge("aiops_vuln_open", "Lỗ hổng đang mở trên workload đang chạy (Trivy Operator)", ["severity"])
 VULN_BREACH = Gauge("aiops_vuln_sla_breaches", "Lỗ hổng CÓ bản sửa quá hạn SLA vá (CRITICAL 7 ngày, HIGH 30 ngày)", ["severity"])
 VULN_KEV = Gauge("aiops_vuln_kev_open", "Lỗ hổng đang mở nằm trong danh mục CISA KEV (đang bị khai thác ngoài thực tế)")
+AUTONOMY_TOIL = Gauge("aiops_toil_share", "Tỉ lệ giờ toil (duyệt tay + xử lý tay sự cố lặp) trên giờ trực — mục tiêu SRE < 0.5")

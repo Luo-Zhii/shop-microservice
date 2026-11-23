@@ -199,6 +199,15 @@ security:
   threat_intel: true
   policy: {kev_days: 3, epss_threshold: 0.1, epss_days: 7}
 
+# Quyền tự động theo thành tích (autonomy.py): đề xuất nâng luật runbook lên auto / hạ về required + đo toil.
+# Chỉ ĐỀ XUẤT (bản vá runbook.yaml qua PR); rollback/toggle_flag không bao giờ tự nâng.
+autonomy:
+  min_samples: 10
+  min_success: 0.95
+  max_recurrence: 0.10
+  promotable: [restart, scale_up]
+  toil_budget: 0.5
+
 # Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
 business:
   default_aov_vnd: 350000

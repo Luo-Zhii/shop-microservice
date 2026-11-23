@@ -24,6 +24,7 @@ def _bool(v: str | None, default: bool) -> bool:
 class Settings:
     raw: dict[str, Any]
     runbook: dict[str, Any]
+    runbook_path: str = ""
     prometheus_url: str = field(default_factory=lambda: os.getenv("PROMETHEUS_URL", "http://localhost:9090"))
     loki_url: str | None = field(default_factory=lambda: os.getenv("LOKI_URL") or None)
     pyroscope_url: str | None = field(default_factory=lambda: os.getenv("PYROSCOPE_URL") or None)
@@ -66,4 +67,4 @@ def load_settings(config_path: str | os.PathLike | None = None, runbook_path: st
         raw = yaml.safe_load(f) or {}
     with open(rb, encoding="utf-8") as f:
         runbook = yaml.safe_load(f) or {}
-    return Settings(raw=raw, runbook=runbook)
+    return Settings(raw=raw, runbook=runbook, runbook_path=str(rb))

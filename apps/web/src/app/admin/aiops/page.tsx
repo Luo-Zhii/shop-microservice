@@ -29,17 +29,18 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'security' | 'drills' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'security' | 'autonomy' | 'drills' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'security', label: 'Bảo mật' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'security', label: 'Bảo mật' }, { value: 'autonomy', label: 'Tự động hoá' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'changes' && <Changes />}
       {view === 'security' && <Security />}
+      {view === 'autonomy' && <Autonomy />}
       {view === 'drills' && <Drills />}
       {view === 'digest' && <Digest />}
     </div>
@@ -718,6 +719,62 @@ function Security() {
               { key: 'ver', header: 'Phiên bản → bản sửa', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.installed} → {i.fixed || '—'}</span> },
               { key: 'img', header: 'Image', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.image}</span> },
             ]} />
+        </div>
+      )}
+    </QueryView>
+  );
+}
+
+interface AutonomyRule { rule: string; action: string; approval: string; actions: number; decided: number; rejected: number; executed: number; failed: number; success_rate: number | null; recurrence_rate: number | null; median_wait_s: number | null; recommendation: 'auto' | 'required' | null; reasons: string[]; patch?: string }
+interface AutonomyReport { days: number; rules: AutonomyRule[]; promote: string[]; demote: string[]; toil_hours: number; oncall_hours: number | null; toil_share: number | null; toil_over_budget: boolean; policy: { toil_budget: number; min_samples: number }; automation_candidates: { service: string; alertname: string; count: number; toil_minutes: number }[] }
+
+const pct = (v: number | null) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+
+/** Quyền tự động theo thành tích: luật runbook nào đủ tin để bỏ duyệt tay, luật auto nào phải trả về duyệt tay; toil và ứng viên tự động hoá. */
+function Autonomy() {
+  const q = useQuery({ queryKey: ['aiops-autonomy'], retry: false, queryFn: () => api.get<AutonomyReport>('/aiops/reports/autonomy', { days: 28 }) });
+  return (
+    <QueryView q={q}>
+      {(d) => (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Toil / giờ trực" value={pct(d.toil_share)} tone={d.toil_over_budget ? 'danger' : 'success'} />
+            <Stat label={`Giờ toil (${d.days} ngày)`} value={`${d.toil_hours} giờ`} />
+            <Stat label="Đề xuất bỏ duyệt tay" value={String(d.promote.length)} />
+            <Stat label="Đề xuất trả về duyệt tay" value={String(d.demote.length)} tone={d.demote.length ? 'danger' : undefined} />
+          </div>
+          <p className="text-sm text-muted">Toil = phút chờ duyệt + phút người xử lý sự cố mà tự động hoá không xử lý được (mục tiêu SRE dưới {Math.round(d.policy.toil_budget * 100)}% giờ trực). Luật chỉ được đề xuất bỏ duyệt tay khi có ít nhất {d.policy.min_samples} lần quyết, không lần nào bị từ chối, thực thi thành công và sự cố không tái diễn; rollback và tắt tính năng luôn cần người duyệt. Đề xuất là bản vá runbook.yaml, đi qua PR như mọi thay đổi chính sách.</p>
+          <SectionTitle>Thành tích từng luật runbook</SectionTitle>
+          <DataTable rows={d.rules} rowKey={(r) => r.rule}
+            columns={[
+              { key: 'rule', header: 'Luật', primary: true, cell: (r) => <span className="break-all font-mono text-sm">{r.rule}</span> },
+              { key: 'rec', header: 'Đề xuất', badge: true, cell: (r) => (r.recommendation === 'auto' ? <Badge tone="success">Bỏ duyệt tay</Badge>
+                : r.recommendation === 'required' ? <Badge tone="danger">Trả về duyệt tay</Badge>
+                : <Badge tone="neutral">{r.approval === 'auto' ? 'Tự động' : 'Duyệt tay'}</Badge>) },
+              { key: 'act', header: 'Hành động', cell: (r) => <span className="font-mono text-xs">{r.action}</span> },
+              { key: 'dec', header: 'Duyệt / từ chối', align: 'right', cell: (r) => `${r.decided - r.rejected} / ${r.rejected}` },
+              { key: 'ok', header: 'Thành công', align: 'right', cell: (r) => pct(r.success_rate) },
+              { key: 'rec2', header: 'Tái diễn 2h', align: 'right', cell: (r) => pct(r.recurrence_rate) },
+              { key: 'wait', header: 'Chờ duyệt (trung vị)', align: 'right', hideOnMobile: true, cell: (r) => (r.median_wait_s == null ? '—' : `${Math.round(r.median_wait_s / 60)} phút`) },
+              { key: 'why', header: 'Lý do', hideOnMobile: true, cell: (r) => <span className="text-xs text-muted">{r.reasons.join(' · ') || '—'}</span> },
+            ]} />
+          {d.rules.filter((r) => r.patch).map((r) => (
+            <details key={r.rule} className="min-w-0 rounded-xl border border-border bg-surface p-3">
+              <summary className="cursor-pointer text-sm font-medium">Bản vá đề xuất: <span className="font-mono">{r.rule}</span> → {r.recommendation}</summary>
+              <p className="mt-2 text-xs text-muted">{r.reasons.join(' · ')}</p>
+              <pre className="mt-2 max-w-full overflow-x-auto rounded-lg bg-surface-2 p-2 text-xs">{r.patch}</pre>
+            </details>
+          ))}
+          <SectionTitle>Ứng viên tự động hoá (sự cố lặp, người xử lý tay)</SectionTitle>
+          {d.automation_candidates.length ? (
+            <DataTable rows={d.automation_candidates} rowKey={(c) => c.service + c.alertname}
+              columns={[
+                { key: 'a', header: 'Cảnh báo', primary: true, cell: (c) => <span className="break-all font-mono text-sm">{c.alertname}</span> },
+                { key: 's', header: 'Service', cell: (c) => <span className="font-mono text-xs">{c.service}</span> },
+                { key: 'n', header: 'Số lần', align: 'right', cell: (c) => String(c.count) },
+                { key: 't', header: 'Phút toil', align: 'right', cell: (c) => formatNumber(c.toil_minutes) },
+              ]} />
+          ) : <p className="text-sm text-muted">Không có nhóm sự cố nào lặp từ 3 lần trở lên mà phải xử lý tay.</p>}
         </div>
       )}
     </QueryView>

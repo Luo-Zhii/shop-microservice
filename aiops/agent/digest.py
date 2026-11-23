@@ -20,8 +20,9 @@ def _fmt_dur(s: float | None) -> str:
     return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m{s % 60:02d}s"
 
 
-def build(store, now: float, hours: int = 24, impact_fn=None) -> dict:
-    """`impact_fn(inc) → dict` (agent/impact.py) — có thì quy các sự cố đã đóng trong ca ra đơn/GMV ước mất."""
+def build(store, now: float, hours: int = 24, impact_fn=None, autonomy: dict | None = None) -> dict:
+    """`impact_fn(inc) → dict` (agent/impact.py) — có thì quy các sự cố đã đóng trong ca ra đơn/GMV ước mất.
+    `autonomy` (autonomy.report) — có thì nhắc luật đủ thành tích bỏ duyệt tay / phải trả về duyệt tay, toil vượt ngân sách."""
     since = now - hours * 3600
     new = store.list_incidents(since=since, limit=500)
     still_open = [i for i in store.list_incidents(limit=500) if i["status"] in ("open", "acknowledged", "mitigated")]
@@ -42,6 +43,13 @@ def build(store, now: float, hours: int = 24, impact_fn=None) -> dict:
         attention.append(f"{sum(int(a['n']) for a in pending)} hành động khắc phục đang chờ duyệt")
     if ev.get("gitops_pr_rejected"):
         attention.append(f"cổng xác minh chặn {ev['gitops_pr_rejected']} PR của tác tử — rà công cụ/runbook")
+    if autonomy:
+        if autonomy.get("demote"):
+            attention.append(f"luật tự động hay hỏng, nên trả về duyệt tay: {', '.join(autonomy['demote'])}")
+        if autonomy.get("promote"):
+            attention.append(f"luật đủ thành tích để bỏ duyệt tay (xem bản vá ở tab Tự động hoá): {', '.join(autonomy['promote'])}")
+        if autonomy.get("toil_over_budget"):
+            attention.append(f"toil chiếm {round(autonomy['toil_share'] * 100)}% giờ trực — vượt ngân sách SRE")
     if noisy and noisy[0][1] >= 3:
         attention.append(f"`{noisy[0][0]}` có {noisy[0][1]} sự cố trong {hours}h — cân nhắc postmortem tổng hợp")
     data = {

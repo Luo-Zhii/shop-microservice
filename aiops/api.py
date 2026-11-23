@@ -1012,6 +1012,31 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
         return analyze(responder.store, responder.clock(), days)
 
+    def autonomy_data(days: int = 28) -> dict:
+        import difflib
+        from pathlib import Path
+
+        from .autonomy import patch_runbook, report
+        from .metrics import AUTONOMY_TOIL
+
+        rules = settings.runbook.get("rules") or []
+        people = len((settings.raw.get("oncall") or {}).get("rotation") or [])
+        out = report(responder.store, rules, responder.clock(), days, settings.raw.get("autonomy"), people)
+        path = Path(settings.runbook_path) if settings.runbook_path else None
+        text = path.read_text(encoding="utf-8") if path and path.exists() else None
+        for r in out["rules"]:
+            if r["recommendation"] and text:
+                new = patch_runbook(text, r["rule"], r["recommendation"])
+                r["patch"] = "".join(difflib.unified_diff(text.splitlines(True), new.splitlines(True),
+                                                          "a/aiops/config/runbook.yaml", "b/aiops/config/runbook.yaml", n=2))
+        AUTONOMY_TOIL.set(out["toil_share"] or 0)
+        return out
+
+    @app.get("/reports/autonomy")
+    def autonomy_report(days: int = Query(28, ge=7, le=180)):
+        """Quyền tự động theo thành tích từng luật runbook + toil; kèm bản vá runbook.yaml cho mỗi đề xuất (người review qua PR)."""
+        return autonomy_data(days)
+
     @app.get("/reports/dora")
     def dora_report(days: int = Query(30, ge=1, le=180), environment: str | None = Query(None, max_length=40)):
         from .dora import report
@@ -1082,7 +1107,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     def oncall_digest(hours: int = Query(24, ge=1, le=168)):
         from .agent.digest import build as build_digest
 
-        return build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact)
+        return build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact, autonomy=autonomy_data())
 
     @app.post("/reports/oncall-digest/send")
     def oncall_digest_send(request: Request, hours: int = Query(24, ge=1, le=168)):
@@ -1091,7 +1116,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
         from .agent.digest import build as build_digest
 
-        d = build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact)
+        d = build_digest(responder.store, responder.clock(), hours, impact_fn=incident_impact, autonomy=autonomy_data())
         return {"sent": responder.notifier.notify("Bàn giao ca trực", d["markdown"]), **{k: d[k] for k in ("incidents", "attention")}}
 
     # ---------------------------------------------------------------- MCP (Streamable HTTP, JSON)
