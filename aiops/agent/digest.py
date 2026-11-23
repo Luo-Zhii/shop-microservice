@@ -47,6 +47,7 @@ def build(store, now: float, hours: int = 24, impact_fn=None) -> dict:
     data = {
         "window_hours": hours, "generated_at": datetime.fromtimestamp(now, VN).isoformat(timespec="minutes"),
         "incidents": {"new": len(new), "open": len(still_open), "resolved": len(resolved),
+                      "drill": sum(1 for i in new if i.get("drill_id")),
                       "mttr_median_s": round(statistics.median(mttr), 1) if mttr else None},
         "noisy_services": [{"service": s, "incidents": n} for s, n in noisy],
         "alerts_correlated": ev.get("alert_correlated", 0),
@@ -70,7 +71,8 @@ def build(store, now: float, hours: int = 24, impact_fn=None) -> dict:
                                    "incidents_costed": len(costed), "skipped_low_confidence": skipped, "top": costed[:3]}
     md = [f"🗂 *Bàn giao ca trực* — {hours}h qua (đến {data['generated_at']})", "",
           f"• Sự cố mới {len(new)} · đang mở {len(still_open)} · đã đóng {len(resolved)} · MTTR trung vị "
-          f"{_fmt_dur(data['incidents']['mttr_median_s'])}",
+          f"{_fmt_dur(data['incidents']['mttr_median_s'])}"
+          + (f" (trong đó {data['incidents']['drill']} sự cố do diễn tập)" if data["incidents"]["drill"] else ""),
           f"• Alert đã gộp theo topology: {data['alerts_correlated']}"]
     if noisy:
         md.append("• Ồn nhất: " + ", ".join(f"{s} ({n})" for s, n in noisy))

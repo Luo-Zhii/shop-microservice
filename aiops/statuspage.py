@@ -74,7 +74,7 @@ def uptime_days(incidents: list[dict], services: set[str], now: float, days: int
 
 def build(store, now: float, components: list[dict], synthetic_failed_services: set[str] | None = None,
           history_days: int = 14, uptime_window: int = 90) -> dict:
-    incidents = store.list_incidents(since=now - uptime_window * 86400, limit=5000)
+    incidents = store.list_incidents(since=now - uptime_window * 86400, limit=5000, exclude_drills=True)
     open_incs = [i for i in incidents if i["status"] in ("open", "acknowledged", "mitigated")]
     failed = synthetic_failed_services or set()
     updates = {i["id"]: store.status_updates(i["id"]) for i in incidents}
@@ -132,7 +132,7 @@ def month_sla(store, components: list[dict], sla: dict, period: str, now: float)
     final = now >= end.timestamp()
     upto = min(now, end.timestamp() - 1)
     days_win = (_day(upto) - first.date()).days + 1
-    incidents = store.list_incidents(since=first.timestamp() - 7 * 86400, limit=10000)
+    incidents = store.list_incidents(since=first.timestamp() - 7 * 86400, limit=10000, exclude_drills=True)
     impacts = {}
     for i in incidents:
         ups = store.status_updates(i["id"])

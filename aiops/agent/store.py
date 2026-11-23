@@ -46,7 +46,8 @@ DDL = [
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
 # migration cộng dồn (chỉ thêm cột, không sửa/xoá) cho DB đã tạo từ phiên bản trước — chạy lặp lại vô hại
-ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT")]
+ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT"),
+               ("incidents", "drill_id", "TEXT")]   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
 JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
@@ -150,8 +151,10 @@ class IncidentStore:
         return int(rows[0]["n"]) if rows else 0
 
     def list_incidents(self, status: str | None = None, service: str | None = None, since: float | None = None,
-                       limit: int = 50) -> list[dict]:
+                       limit: int = 50, exclude_drills: bool = False) -> list[dict]:
         where, params = [], []
+        if exclude_drills:
+            where.append("drill_id IS NULL")
         if status:
             where.append("status = ?")
             params.append(status)
@@ -255,6 +258,10 @@ class IncidentStore:
     def update_drill(self, id_: str, **fields) -> dict | None:
         self._update("drills", id_, fields)
         return self.get_drill(id_)
+
+    def running_drill(self) -> dict | None:
+        rows = self._exec("SELECT * FROM drills WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")
+        return rows[0] if rows else None
 
     def drills(self, limit: int = 200) -> list[dict]:
         return self._exec("SELECT * FROM drills ORDER BY started_at DESC LIMIT ?", (limit,))

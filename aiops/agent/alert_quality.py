@@ -15,7 +15,7 @@ from collections import defaultdict
 
 
 def analyze(store, now: float, days: int = 30, flap_s: int = 300, min_count: int = 3) -> dict:
-    incs = store.list_incidents(since=now - days * 86400, limit=5000)
+    incs = store.list_incidents(since=now - days * 86400, limit=5000, exclude_drills=True)
     by: dict[str, list[dict]] = defaultdict(list)
     for i in incs:
         name = next((a.get("alertname") for a in (i.get("alerts") or []) if a.get("alertname")), None) or "unknown"

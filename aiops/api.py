@@ -424,7 +424,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         from .drills import summary
 
         items = responder.store.drills()
-        incs = responder.store.list_incidents(since=responder.clock() - 90 * 86400, limit=5000)
+        incs = responder.store.list_incidents(since=responder.clock() - 90 * 86400, limit=5000, exclude_drills=True)
         return {"items": [_drill_view(d) for d in items], "summary": summary(items, incs)}
 
     @app.post("/drills")
@@ -698,7 +698,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         when = datetime.fromisoformat(body["at"].replace("Z", "+00:00")) if body.get("at") else None
         ch = Change(files, **({"when": when} if when else {}))
         since = responder.clock() - 30 * 86400
-        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
+        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50, exclude_drills=True))
+                            for s in ch.services()}
         budget = {}
         if responder.prom is not None:
             slos = (settings.raw.get("error_budget") or {}).get("slos") or {}
@@ -745,7 +746,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         at = parse_ts(body.get("at")) or responder.clock()
         ch = Change(files, when=datetime.fromtimestamp(at).astimezone())
         since = at - 30 * 86400
-        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50)) for s in ch.services()}
+        ch.incidents_30d = {s: len(responder.store.list_incidents(service=s, since=since, limit=50, exclude_drills=True))
+                            for s in ch.services()}
         x = ch.features()
         lt = body.get("lead_time_s")
         rec = responder.store.add_deploy(str(body.get("ref") or ""), ch.services(), x, score(x)["probability"], at,
@@ -798,7 +800,7 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
             # Làm sạch nhãn bằng RCA: sự cố chỉ "do deploy" khi nguyên nhân gốc top-1 là service vừa deploy
             # (bắt cả sự cố cảnh báo ở service hạ nguồn); chưa có RCA mới xét service bị cảnh báo.
             svcs, hit = set(d["services"]), None
-            for i in responder.store.list_incidents(since=d["deployed_at"], limit=1000):
+            for i in responder.store.list_incidents(since=d["deployed_at"], limit=1000, exclude_drills=True):
                 if i["detected_at"] > d["deployed_at"] + win:
                     continue
                 rc = (i.get("root_causes") or [{}])[0].get("service")

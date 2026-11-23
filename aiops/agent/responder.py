@@ -110,7 +110,7 @@ class Responder:
                 severity=labels.get("severity", "warning"), title=(alert.get("annotations") or {}).get("summary")
                 or f"{labels.get('alertname', 'Alert')} — {svc}", source=labels.get("source", "prometheus"),
                 detected_at=detected, fault_start=fault_start, fault_start_source="annotation" if fault_start else None,
-                alerts=[entry])
+                alerts=[entry], drill_id=(self.store.running_drill() or {}).get("id"))
             self.refresh_open_gauge()
             self.store.audit("alertmanager", "incident_created", inc["id"], details={"alert": labels})
             touched.append(inc["id"])

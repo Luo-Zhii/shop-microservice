@@ -11,7 +11,7 @@ import { formatCompact, formatDate, formatNumber, formatVND, timeAgo, type Tone 
 import { LEVEL as STATUS_LEVEL, PHASE, type Level as StatusLevel, type Phase } from '@/lib/status';
 import { toast } from '@/lib/toast';
 
-interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; root_causes?: { service: string; score: number }[] }
+interface Incident { id: string; service: string; severity: string; status: string; title: string; summary?: string; detected_at: string; drill_id?: string | null; root_causes?: { service: string; score: number }[] }
 interface Step { n: number; thought: string; tool: string | null; evidence?: string; ok?: boolean }
 interface Hypothesis { service: string; cause: string; confidence: number; evidence: string[] }
 interface Investigation {
@@ -731,7 +731,7 @@ function Incidents() {
         {(d) => (
           <DataTable rows={d.items} rowKey={(i) => i.id} onRowClick={setSel}
             columns={[
-              { key: 'title', header: 'Sự cố', primary: true, cell: (i) => <span className="line-clamp-2">{i.title}</span> },
+              { key: 'title', header: 'Sự cố', primary: true, cell: (i) => <span className="line-clamp-2">{i.drill_id && <Badge className="mr-1" tone="info">Diễn tập</Badge>}{i.title}</span> },
               { key: 'status', header: 'Trạng thái', badge: true, cell: (i) => <Badge tone={STATUS[i.status]?.tone}>{STATUS[i.status]?.label ?? i.status}</Badge> },
               { key: 'svc', header: 'Service', cell: (i) => <span className="font-mono text-xs">{i.service}</span> },
               { key: 'sev', header: 'Mức', cell: (i) => <Badge tone={SEV[i.severity] ?? 'neutral'}>{i.severity}</Badge> },

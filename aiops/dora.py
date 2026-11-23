@@ -49,7 +49,7 @@ def _window(deploys: list[dict], incidents: list[dict], start: float, end: float
 def report(store, now: float, days: int = 30, environment: str | None = None) -> dict:
     start, prev = now - days * DAY, now - 2 * days * DAY
     deploys = store.deploys()
-    incidents = store.list_incidents(since=prev - 30 * DAY, limit=10000)
+    incidents = store.list_incidents(since=prev - 30 * DAY, limit=10000, exclude_drills=True)
     cur, before = _window(deploys, incidents, start, now, environment), _window(deploys, incidents, prev, start, environment)
     out = {}
     for k, v in cur["metrics"].items():
