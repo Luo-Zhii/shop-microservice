@@ -1049,6 +1049,48 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
 
         return analyze(responder.store, responder.clock(), days)
 
+    # ---------------------------------------------------------------- quản lý vấn đề (ITIL) + lỗi đã biết
+    @app.get("/problems")
+    def problems_list(days: int = Query(30, ge=7, le=180)):
+        """Vấn đề (open → known_error → resolved) + ứng viên gom từ sự cố lặp, xếp theo tổng thời gian gián đoạn."""
+        from .problems import report
+
+        return report(responder.store, responder.clock(), days)
+
+    @app.post("/problems")
+    async def problems_create(request: Request):
+        from .problems import create
+
+        body = await request.json()
+        ids = [str(x) for x in (body.get("incident_ids") or [])][:200]
+        title = str(body.get("title") or "").strip()
+        if not ids or not title:
+            return err(400, "VALIDATION_ERROR", "cần incident_ids và title")
+        try:
+            return create(responder.store, ids, title, request.headers.get("x-actor", "api"), responder.clock())
+        except ValueError as e:
+            return err(400, "VALIDATION_ERROR", str(e))
+
+    @app.get("/problems/{problem_id}")
+    def problems_get(problem_id: str):
+        p = responder.store.get_problem(problem_id)
+        if p is None:
+            return err(404, "NOT_FOUND", "không có vấn đề")
+        incs = [{k: i.get(k) for k in ("id", "title", "service", "status", "severity", "detected_at", "resolved_at")}
+                for i in responder.store.problem_incidents(problem_id)]
+        return {**p, "incidents": incs}
+
+    @app.patch("/problems/{problem_id}")
+    async def problems_update(problem_id: str, request: Request):
+        from .problems import update
+
+        try:
+            return update(responder.store, problem_id, await request.json(), request.headers.get("x-actor", "api"), responder.clock())
+        except KeyError:
+            return err(404, "NOT_FOUND", "không có vấn đề")
+        except ValueError as e:
+            return err(400, "VALIDATION_ERROR", str(e))
+
     def autonomy_data(days: int = 28) -> dict:
         import difflib
         from pathlib import Path

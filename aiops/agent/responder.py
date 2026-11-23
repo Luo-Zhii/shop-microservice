@@ -212,6 +212,12 @@ class Responder:
             if onset and onset <= inc["detected_at"]:
                 updates.update(fault_start=onset, fault_start_source="estimated")
         inc = self.store.update_incident(incident_id, **updates)
+        # quản lý vấn đề: khớp lỗi đã biết → kèm workaround vào bản tin; khớp vấn đề đã đóng → tái phát, mở lại
+        from ..problems import match as match_problem, note as problem_note
+
+        known = match_problem(self.store, inc, self.clock())
+        if known:
+            inc = self.store.update_incident(incident_id, summary=f"{problem_note(known)}\n\n{inc.get('summary') or ''}")
         INCIDENTS.labels(inc.get("severity") or "warning", target).inc()
         if inc.get("fault_start") is not None:
             MTTD.labels(inc["source"], inc.get("fault_start_source") or "unknown").observe(

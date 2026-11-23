@@ -51,14 +51,20 @@ DDL = [
     """CREATE TABLE IF NOT EXISTS threat_intel (
         id TEXT PRIMARY KEY, kev INTEGER, kev_added TEXT, kev_ransomware TEXT, epss DOUBLE PRECISION,
         epss_percentile DOUBLE PRECISION, updated_at DOUBLE PRECISION)""",
+    # quản lý vấn đề (ITIL Problem Management): nhóm sự cố lặp → vấn đề → lỗi đã biết (workaround) → khắc phục tận gốc
+    """CREATE TABLE IF NOT EXISTS problems (
+        id TEXT PRIMARY KEY, code TEXT, title TEXT, status TEXT, tokens TEXT, root_service TEXT, workaround TEXT,
+        fix_ref TEXT, owner TEXT, created_by TEXT, reopened INTEGER, created_at DOUBLE PRECISION,
+        updated_at DOUBLE PRECISION, resolved_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
 # migration cộng dồn (chỉ thêm cột, không sửa/xoá) cho DB đã tạo từ phiên bản trước — chạy lặp lại vô hại
 ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT"),
                ("incidents", "drill_id", "TEXT"),   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
-               ("incidents", "assignee", "TEXT")]   # người trực chính lúc sự cố mở (oncall.py)
-JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
+               ("incidents", "assignee", "TEXT"),   # người trực chính lúc sự cố mở (oncall.py)
+               ("incidents", "problem_id", "TEXT")]   # vấn đề (problems) mà sự cố thuộc về
+JSON_COLS = {"tokens", "services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
 OPEN = ("open", "acknowledged", "mitigated")
@@ -302,6 +308,27 @@ class IncidentStore:
 
     def drills(self, limit: int = 200) -> list[dict]:
         return self._exec("SELECT * FROM drills ORDER BY started_at DESC LIMIT ?", (limit,))
+
+    # ---- vấn đề (problem management) ----
+    def add_problem(self, **fields) -> dict:
+        n = int(self._exec("SELECT count(*) AS n FROM problems")[0]["n"]) + 1
+        row = {"id": uuid7(), "code": f"PRB-{n:04d}", "status": "open", "reopened": 0, **fields}
+        self._insert("problems", row)
+        return self.get_problem(row["id"])
+
+    def get_problem(self, id_: str) -> dict | None:
+        rows = self._exec("SELECT * FROM problems WHERE id = ?", (id_,))
+        return self._dec(rows[0]) if rows else None
+
+    def update_problem(self, id_: str, **fields) -> dict | None:
+        self._update("problems", id_, fields)
+        return self.get_problem(id_)
+
+    def problems(self, limit: int = 500) -> list[dict]:
+        return [self._dec(r) for r in self._exec("SELECT * FROM problems ORDER BY updated_at DESC LIMIT ?", (limit,))]
+
+    def problem_incidents(self, problem_id: str) -> list[dict]:
+        return [self._dec(r) for r in self._exec("SELECT * FROM incidents WHERE problem_id = ? ORDER BY detected_at", (problem_id,))]
 
     def audit(self, actor: str, event: str, incident_id: str | None = None, action_id: str | None = None,
               details: dict | None = None) -> dict:

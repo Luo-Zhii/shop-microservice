@@ -29,16 +29,17 @@ const STATUS: Record<string, { label: string; tone: Tone }> = {
 };
 
 export default function AdminAiopsPage() {
-  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'security' | 'autonomy' | 'drills' | 'digest'>('incidents');
+  const [view, setView] = useState<'incidents' | 'slo' | 'capacity' | 'changes' | 'problems' | 'security' | 'autonomy' | 'drills' | 'digest'>('incidents');
   return (
     <div>
       <PageTitle>AIOps</PageTitle>
       <Tabs className="mb-4" value={view} onChange={setView}
-        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'security', label: 'Bảo mật' }, { value: 'autonomy', label: 'Tự động hoá' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
+        items={[{ value: 'incidents', label: 'Sự cố' }, { value: 'slo', label: 'SLO' }, { value: 'capacity', label: 'Dự báo dung lượng' }, { value: 'changes', label: 'Thay đổi' }, { value: 'problems', label: 'Vấn đề' }, { value: 'security', label: 'Bảo mật' }, { value: 'autonomy', label: 'Tự động hoá' }, { value: 'drills', label: 'Diễn tập' }, { value: 'digest', label: 'Bàn giao ca' }]} />
       {view === 'incidents' && <Incidents />}
       {view === 'slo' && <Slo />}
       {view === 'capacity' && <Capacity />}
       {view === 'changes' && <Changes />}
+      {view === 'problems' && <Problems />}
       {view === 'security' && <Security />}
       {view === 'autonomy' && <Autonomy />}
       {view === 'drills' && <Drills />}
@@ -767,6 +768,106 @@ function Security() {
         </div>
       )}
     </QueryView>
+  );
+}
+
+type ProblemStatus = 'open' | 'known_error' | 'resolved';
+interface ProblemItem { id: string; code: string; title: string; status: ProblemStatus; root_service: string; workaround: string | null; fix_ref: string | null; owner: string | null; reopened: number; incidents: number; incidents_recent: number; outage_minutes_recent: number; last_seen: number | null }
+interface ProblemCandidate { incident_ids: string[]; count: number; root_service: string; services: string[]; first_seen: number; last_seen: number; outage_minutes: number; title: string; tokens: string[] }
+const PROBLEM_STATUS: Record<ProblemStatus, { label: string; tone: Tone }> = {
+  open: { label: 'Đang điều tra', tone: 'warning' }, known_error: { label: 'Lỗi đã biết', tone: 'info' }, resolved: { label: 'Đã khắc phục', tone: 'success' },
+};
+const epochDate = (t: number | null) => (t == null ? '—' : formatDate(new Date(t * 1000).toISOString()));
+
+/** Quản lý vấn đề (ITIL): sự cố lặp → vấn đề → lỗi đã biết (workaround gắn vào sự cố mới) → khắc phục tận gốc; tái phát tự mở lại. */
+function Problems() {
+  const qc = useQueryClient();
+  const [sel, setSel] = useState<ProblemItem | null>(null);
+  const q = useQuery({ queryKey: ['aiops-problems'], retry: false,
+    queryFn: () => api.get<{ days: number; items: ProblemItem[]; candidates: ProblemCandidate[]; counts: Partial<Record<ProblemStatus, number>> }>('/aiops/problems', { days: 30 }) });
+  const open = useMutation({
+    mutationFn: (c: ProblemCandidate) => api.post<ProblemItem>('/aiops/problems', { incident_ids: c.incident_ids, title: c.title }),
+    onSuccess: (p) => { toast.success(`Đã mở vấn đề ${p.code}`); void qc.invalidateQueries({ queryKey: ['aiops-problems'] }); },
+  });
+  return (
+    <QueryView q={q}>
+      {(d) => (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Stat label="Đang điều tra" value={String(d.counts.open ?? 0)} />
+            <Stat label="Lỗi đã biết" value={String(d.counts.known_error ?? 0)} />
+            <Stat label="Đã khắc phục" value={String(d.counts.resolved ?? 0)} tone="success" />
+            <Stat label="Ứng viên mới" value={String(d.candidates.length)} tone={d.candidates.length ? 'danger' : undefined} />
+          </div>
+          <p className="text-sm text-muted">Sự cố khôi phục dịch vụ, vấn đề xoá nguyên nhân. Sự cố mới khớp lỗi đã biết sẽ kèm luôn cách xử lý tạm trong bản tin; khớp vấn đề đã khắc phục thì tự mở lại (tái phát).</p>
+          {d.candidates.length > 0 && (
+            <>
+              <SectionTitle>Ứng viên: sự cố lặp {d.days} ngày qua</SectionTitle>
+              <ul className="flex flex-col gap-2">
+                {d.candidates.map((c) => (
+                  <li key={c.incident_ids[0]}>
+                    <Card className="flex flex-col gap-2 p-3 text-sm sm:flex-row sm:items-center">
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-medium">{c.title}</p>
+                        <p className="break-words text-xs text-muted">{c.count} sự cố · gián đoạn {formatNumber(c.outage_minutes)} phút · {c.services.join(', ')} · gần nhất {epochDate(c.last_seen)}</p>
+                      </div>
+                      <Button className="w-full sm:w-auto" onClick={() => open.mutate(c)} disabled={open.isPending}>Mở vấn đề</Button>
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <SectionTitle>Vấn đề</SectionTitle>
+          {d.items.length ? (
+            <DataTable rows={d.items} rowKey={(p) => p.id} onRowClick={setSel}
+              columns={[
+                { key: 'title', header: 'Vấn đề', primary: true, cell: (p) => <span className="break-words"><b className="font-mono text-xs">{p.code}</b> {p.title}</span> },
+                { key: 'st', header: 'Trạng thái', badge: true, cell: (p) => <span className="flex flex-wrap gap-1"><Badge tone={PROBLEM_STATUS[p.status].tone}>{PROBLEM_STATUS[p.status].label}</Badge>{p.reopened > 0 && <Badge tone="danger">Tái phát ×{p.reopened}</Badge>}</span> },
+                { key: 'root', header: 'Service gốc', cell: (p) => <span className="font-mono text-xs">{p.root_service}</span> },
+                { key: 'n', header: `Sự cố (${d.days} ngày / tổng)`, align: 'right', cell: (p) => `${p.incidents_recent} / ${p.incidents}` },
+                { key: 'out', header: 'Gián đoạn', align: 'right', cell: (p) => `${formatNumber(p.outage_minutes_recent)} phút` },
+                { key: 'own', header: 'Phụ trách', hideOnMobile: true, cell: (p) => p.owner || '—' },
+              ]} />
+          ) : <p className="text-sm text-muted">Chưa mở vấn đề nào.</p>}
+          {sel && <ProblemSheet problem={sel} onClose={() => setSel(null)} />}
+        </div>
+      )}
+    </QueryView>
+  );
+}
+
+function ProblemSheet({ problem, onClose }: { problem: ProblemItem; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [f, setF] = useState<Record<'title' | 'status' | 'workaround' | 'fix_ref' | 'owner', string>>({ title: problem.title, status: problem.status, workaround: problem.workaround ?? '', fix_ref: problem.fix_ref ?? '', owner: problem.owner ?? '' });
+  const save = useMutation({
+    mutationFn: () => api<ProblemItem>(`/aiops/problems/${problem.id}`, { method: 'PATCH', body: f }),
+    onSuccess: () => { toast.success('Đã lưu'); void qc.invalidateQueries({ queryKey: ['aiops-problems'] }); onClose(); },
+  });
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const blocked = (f.status === 'known_error' && !f.workaround.trim()) || (f.status === 'resolved' && !f.fix_ref.trim());
+  return (
+    <Sheet open onClose={onClose} title={problem.code}
+      footer={<>
+        <Button variant="outline" onClick={onClose}>Huỷ</Button>
+        <Button onClick={() => save.mutate()} disabled={save.isPending || blocked || !f.title.trim()}>Lưu</Button>
+      </>}>
+      <div className="flex flex-col gap-3">
+        <Field label="Tiêu đề" htmlFor="pb-title"><Input id="pb-title" value={f.title} maxLength={200} onChange={set('title')} /></Field>
+        <Field label="Trạng thái" htmlFor="pb-status">
+          <Select id="pb-status" value={f.status} onChange={set('status')}>
+            {(Object.keys(PROBLEM_STATUS) as ProblemStatus[]).map((k) => <option key={k} value={k}>{PROBLEM_STATUS[k].label}</option>)}
+          </Select>
+        </Field>
+        <Field label="Cách xử lý tạm (workaround)" htmlFor="pb-wa" hint="Bắt buộc với Lỗi đã biết — sẽ gắn vào bản tin của sự cố mới khớp vấn đề này">
+          <Textarea id="pb-wa" rows={4} value={f.workaround} maxLength={4000} onChange={set('workaround')} />
+        </Field>
+        <Field label="Bản sửa tận gốc (PR/ticket)" htmlFor="pb-fix" hint="Bắt buộc khi đóng vấn đề">
+          <Input id="pb-fix" value={f.fix_ref} maxLength={500} onChange={set('fix_ref')} placeholder="vd: shop-microservice#412" />
+        </Field>
+        <Field label="Phụ trách" htmlFor="pb-owner"><Input id="pb-owner" value={f.owner} maxLength={120} onChange={set('owner')} /></Field>
+      </div>
+    </Sheet>
   );
 }
 
