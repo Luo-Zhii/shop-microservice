@@ -62,3 +62,65 @@ def test_api_sync(tmp_path):
         assert c.get("/security/vulns").json()["open_by_severity"] == {"CRITICAL": 1, "HIGH": 2}
         m = c.get("/metrics").text
         assert 'aiops_vuln_open{severity="CRITICAL"} 1.0' in m and 'aiops_vuln_sla_breaches{severity="CRITICAL"} 0.0' in m
+
+
+KEV = {"vulnerabilities": [{"cveID": "CVE-3", "dateAdded": "2027-01-20", "knownRansomwareCampaignUse": "Known"},
+                           {"cveID": "CVE-999", "dateAdded": "2020-01-01"}]}
+
+
+def fake_fetch(calls, kev=KEV, epss=None, fail_kev=False):
+    def fetch(url, params):
+        calls.append(url)
+        if "cisa" in url:
+            if fail_kev:
+                raise OSError("mất mạng")
+            return kev
+        got = epss or {"CVE-1": "0.02", "CVE-2": "0.35"}
+        return {"data": [{"cve": c, "epss": got[c], "percentile": "0.9"} for c in params["cve"].split(",") if c in got]}
+    return fetch
+
+
+def test_threat_intel_priority(tmp_path):
+    from aiops.threatintel import kev_epoch, refresh
+
+    st = IncidentStore(f"sqlite:///{tmp_path / 't.db'}")
+    sync(st, R1, T0)                                      # T0 ≈ 2027-01-15
+    calls = []
+    out = refresh(st, fake_fetch(calls), T0)
+    assert out["refreshed"] and out["kev"] == 1 and out["epss_high"] == 1 and not out["errors"]
+    assert refresh(st, fake_fetch(calls), T0 + 3600)["refreshed"] is False and len(calls) == 2     # ≤ 1 lần/ngày
+    r = report(st, T0 + 2 * DAY)
+    by = {i["vuln_id"]: i for i in r["items"]}
+    # CVE-3: HIGH (30 ngày) nhưng vào KEV ngày 20/01 — SAU lúc phát hiện → hạn = ngày vào KEV + 3 ngày, P1, ransomware
+    kev_start = kev_epoch("2027-01-20")
+    assert kev_start > T0 and by["CVE-3"]["priority"] == "P1" and by["CVE-3"]["kev_ransomware"]
+    assert by["CVE-3"]["sla_days"] == round((kev_start + 3 * DAY - T0) / DAY, 1)
+    # CVE-2: HIGH, EPSS 0.35 → P2, hạn 7 ngày; chưa có bản sửa → không phạt; không KEV → không cần mitigation
+    assert by["CVE-2"]["priority"] == "P2" and by["CVE-2"]["sla_days"] == 7.0 and not by["CVE-2"]["needs_mitigation"]
+    # CVE-1: CRITICAL, EPSS thấp → vẫn 7 ngày (tình báo không bao giờ NỚI hạn)
+    assert by["CVE-1"]["priority"] == "P2" and by["CVE-1"]["sla_days"] == 7.0
+    assert r["items"][0]["vuln_id"] == "CVE-3" and r["kev_open"] == 1 and r["open_by_priority"] == {"P1": 1, "P2": 2}
+    later = report(st, kev_start + 4 * DAY)
+    assert next(i for i in later["items"] if i["vuln_id"] == "CVE-3")["breach"]
+    # KEV chưa có bản sửa → cần biện pháp tạm; lần làm mới sau mất mạng KEV → giữ cờ KEV cũ, EPSS vẫn cập nhật
+    st2 = IncidentStore(f"sqlite:///{tmp_path / 't2.db'}")
+    sync(st2, [rep("cart-5c6d7e8f9a", "cart", "ghcr.io/x/cart:sha-1", [("CVE-999", "HIGH", "busybox", "")])], T0)
+    refresh(st2, fake_fetch([], epss={"CVE-999": "0.5"}), T0)
+    assert report(st2, T0)["needs_mitigation"] == 1
+    out = refresh(st2, fake_fetch([], epss={"CVE-999": "0.6"}, fail_kev=True), T0 + 2 * DAY)
+    assert out["errors"] and st2.threat_intel()["CVE-999"]["kev"] == 1 and st2.threat_intel()["CVE-999"]["epss"] == 0.6
+
+
+def test_api_threat_intel(tmp_path):
+    from aiops.agent.kube import StaticInspector
+
+    from .test_mcp_investigator import make_app
+
+    with make_app(tmp_path) as c:
+        c.app.state.responder.inspector = StaticInspector(vulns=R1)
+        c.app.state.responder.threat_fetch = fake_fetch([])
+        r = c.post("/security/vulns/sync").json()
+        assert r["threat_intel"]["kev"] == 1
+        body = c.get("/security/vulns").json()
+        assert body["kev_open"] == 1 and body["items"][0]["reasons"][-1].startswith("CISA KEV")
+        assert "aiops_vuln_kev_open 1.0" in c.get("/metrics").text

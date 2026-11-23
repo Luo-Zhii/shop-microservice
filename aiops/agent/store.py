@@ -47,13 +47,17 @@ DDL = [
         id TEXT PRIMARY KEY, workload TEXT, container TEXT, image TEXT, vuln_id TEXT, severity TEXT, pkg TEXT,
         installed TEXT, fixed TEXT, title TEXT, first_seen DOUBLE PRECISION, last_seen DOUBLE PRECISION,
         resolved_at DOUBLE PRECISION)""",
+    # tình báo mối đe doạ cho đúng các CVE đang có: CISA KEV (đang bị khai thác) + FIRST EPSS (xác suất bị khai thác 30 ngày)
+    """CREATE TABLE IF NOT EXISTS threat_intel (
+        id TEXT PRIMARY KEY, kev INTEGER, kev_added TEXT, kev_ransomware TEXT, epss DOUBLE PRECISION,
+        epss_percentile DOUBLE PRECISION, updated_at DOUBLE PRECISION)""",
     """CREATE TABLE IF NOT EXISTS audit (
         ts DOUBLE PRECISION, actor TEXT, event TEXT, incident_id TEXT, action_id TEXT, details TEXT)""",
 ]
 # migration cộng dồn (chỉ thêm cột, không sửa/xoá) cho DB đã tạo từ phiên bản trước — chạy lặp lại vô hại
 ADD_COLUMNS = [("deploy_records", "lead_time_s", "DOUBLE PRECISION"), ("deploy_records", "environment", "TEXT"),
-               ("incidents", "drill_id", "TEXT"),
-               ("incidents", "assignee", "TEXT")]   # người trực chính lúc sự cố mở (oncall.py)   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
+               ("incidents", "drill_id", "TEXT"),   # sự cố sinh ra trong buổi diễn tập (loại khỏi MTTR/DORA/SLA)
+               ("incidents", "assignee", "TEXT")]   # người trực chính lúc sự cố mở (oncall.py)
 JSON_COLS = {"services", "features", "weights", "steps", "hypotheses", "dropped_hypotheses", "remediation", "evidence", "cost", "pr", "root_causes", "context", "decision", "alerts", "target", "params", "result", "details"}
 TS_COLS = {"fault_start", "detected_at", "acknowledged_at", "mitigated_at", "resolved_at", "created_at", "updated_at",
            "decided_at", "executed_at", "ts"}
@@ -277,6 +281,17 @@ class IncidentStore:
 
     def resolve_vuln(self, key: str, now: float) -> None:
         self._update("vuln_findings", key, {"resolved_at": now})
+
+    def threat_intel(self) -> dict[str, dict]:
+        return {r["id"]: r for r in self._exec("SELECT * FROM threat_intel")}
+
+    def put_threat_intel(self, rows: dict[str, dict], now: float) -> None:
+        known = set(self.threat_intel())
+        for cve, f in rows.items():
+            if cve in known:
+                self._update("threat_intel", cve, {**f, "updated_at": now})
+            else:
+                self._insert("threat_intel", {"id": cve, **f, "updated_at": now})
 
     def running_drill(self) -> dict | None:
         rows = self._exec("SELECT * FROM drills WHERE status = 'running' ORDER BY started_at DESC LIMIT 1")

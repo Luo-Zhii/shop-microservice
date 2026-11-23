@@ -1024,15 +1024,27 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
         """CronJob mỗi giờ: đọc VulnerabilityReport (Trivy Operator) → cập nhật phát hiện mới / đã vá / mở lại."""
         if settings.webhook_token and request.headers.get("authorization") != f"Bearer {settings.webhook_token}":
             return err(401, "UNAUTHORIZED", "thiếu hoặc sai token")
-        from .metrics import VULN_BREACH, VULN_OPEN
+        from .metrics import VULN_BREACH, VULN_KEV, VULN_OPEN
         from .vulns import report, sync
 
         try:
             reports = responder.inspector.vulnerability_reports(settings.namespace)
         except Exception as e:  # noqa: BLE001 - chưa cài Trivy Operator / thiếu quyền
             return err(502, "UPSTREAM_ERROR", f"không đọc được VulnerabilityReport: {str(e)[:200]}")
+        sec = settings.raw.get("security") or {}
         out = sync(responder.store, reports, responder.clock())
-        rep = report(responder.store, responder.clock(), (settings.raw.get("security") or {}).get("sla_days"))
+        # tình báo mối đe doạ (CISA KEV + FIRST EPSS) cho đúng các CVE đang có — tối đa mỗi ngày một lần, lỗi mạng giữ dữ liệu cũ
+        fetch = getattr(responder, "threat_fetch", None)
+        if fetch is None and sec.get("threat_intel", False):
+            from .threatintel import http_fetch
+
+            fetch = responder.threat_fetch = http_fetch()
+        if fetch is not None:
+            from .threatintel import refresh
+
+            out["threat_intel"] = refresh(responder.store, fetch, responder.clock())
+        rep = report(responder.store, responder.clock(), sec.get("sla_days"), sec.get("policy"))
+        VULN_KEV.set(rep["kev_open"])
         VULN_OPEN.clear(); VULN_BREACH.clear()
         for sev, n in rep["open_by_severity"].items():
             VULN_OPEN.labels(sev).set(n)
@@ -1044,7 +1056,8 @@ def create_app(settings: Settings | None = None, **deps) -> FastAPI:
     def vulns_report():
         from .vulns import report
 
-        return report(responder.store, responder.clock(), (settings.raw.get("security") or {}).get("sla_days"))
+        sec = settings.raw.get("security") or {}
+        return report(responder.store, responder.clock(), sec.get("sla_days"), sec.get("policy"))
 
     @app.get("/oncall")
     def oncall():

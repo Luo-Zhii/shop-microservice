@@ -51,6 +51,7 @@ class Responder:
                  clock=time.time):
         self.s, self.store, self.executor, self.notifier = settings, store, executor, notifier
         self.inspector, self.engine, self.prom, self.loki, self.llm, self.clock = inspector, engine, prom, loki, llm, clock
+        self.threat_fetch = None   # nguồn CISA KEV / FIRST EPSS (api.py gắn http_fetch khi bật security.threat_intel)
         self.secret = settings.approval_secret or secrets.token_hex(32)
         if not settings.approval_secret:
             log.warning("APPROVAL_SECRET chưa đặt — dùng khoá ngẫu nhiên (token mất hiệu lực khi khởi động lại)")

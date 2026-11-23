@@ -684,30 +684,36 @@ function OnCall() {
   );
 }
 
-interface VulnItem { workload: string; container: string; image: string; vuln_id: string; severity: string; pkg: string; installed: string; fixed: string; title: string; age_days: number; sla_days: number | null; fixable: boolean; breach: boolean; due_in_days: number | null }
+interface VulnItem { workload: string; container: string; image: string; vuln_id: string; severity: string; pkg: string; installed: string; fixed: string; title: string; age_days: number; sla_days: number | null; fixable: boolean; breach: boolean; due_in_days: number | null; priority: 'P1' | 'P2' | 'P3'; reasons: string[]; kev: boolean; kev_ransomware: boolean; epss: number | null; epss_percentile: number | null; needs_mitigation: boolean }
 
 /** SLA vá lỗ hổng của workload ĐANG CHẠY (Trivy Operator): CVE công bố sau khi deploy thì chỉ quét liên tục mới thấy. */
 function Security() {
-  const q = useQuery({ queryKey: ['aiops-vulns'], retry: false, queryFn: () => api.get<{ sla_days: Record<string, number>; open_by_severity: Record<string, number>; breaches: Record<string, number>; mttr_days: number | null; items: VulnItem[] }>('/aiops/security/vulns') });
+  const q = useQuery({ queryKey: ['aiops-vulns'], retry: false, queryFn: () => api.get<{ sla_days: Record<string, number>; policy: { kev_days: number; epss_threshold: number; epss_days: number }; open_by_severity: Record<string, number>; open_by_priority: Record<string, number>; breaches: Record<string, number>; kev_open: number; needs_mitigation: number; threat_intel_updated_at: number | null; mttr_days: number | null; items: VulnItem[] }>('/aiops/security/vulns') });
   return (
     <QueryView q={q} isEmpty={(d) => !d.items.length}
       empty={<EmptyState icon={<ShieldAlert className="size-6" />} title="Chưa có lỗ hổng nào trên workload đang chạy" description="Trivy Operator quét liên tục namespace shopnow; CronJob vuln-sync đồng bộ mỗi giờ." />}>
       {(d) => (
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="CRITICAL đang mở" value={String(d.open_by_severity.CRITICAL ?? 0)} tone={d.open_by_severity.CRITICAL ? 'danger' : 'success'} />
-            <Stat label="HIGH đang mở" value={String(d.open_by_severity.HIGH ?? 0)} />
+            <Stat label="Đang bị khai thác (KEV)" value={d.needs_mitigation ? `${d.kev_open} · ${d.needs_mitigation} chưa vá được` : String(d.kev_open)} tone={d.kev_open ? 'danger' : 'success'} />
+            <Stat label="Mở: CRITICAL / HIGH" value={`${d.open_by_severity.CRITICAL ?? 0} / ${d.open_by_severity.HIGH ?? 0}`} />
             <Stat label="Quá hạn SLA vá" value={String(Object.values(d.breaches).reduce((a, b) => a + b, 0))} tone={Object.keys(d.breaches).length ? 'danger' : 'success'} />
             <Stat label="Thời gian vá (trung vị)" value={d.mttr_days == null ? '—' : `${d.mttr_days} ngày`} />
           </div>
-          <p className="text-sm text-muted">SLA vá: CRITICAL {d.sla_days.CRITICAL} ngày, HIGH {d.sla_days.HIGH} ngày — chỉ tính lỗ hổng đã có bản sửa; tuổi không bị reset khi deploy lại hay rollback.</p>
+          <p className="text-sm text-muted">SLA vá: CRITICAL {d.sla_days.CRITICAL} ngày, HIGH {d.sla_days.HIGH} ngày; rút ngắn theo rủi ro thật: CISA KEV {d.policy.kev_days} ngày (từ lúc vào danh mục), EPSS ≥ {d.policy.epss_threshold} còn {d.policy.epss_days} ngày. Chỉ tính lỗ hổng đã có bản sửa; tuổi không bị reset khi deploy lại hay rollback. Tình báo cập nhật: {d.threat_intel_updated_at ? timeAgo(new Date(d.threat_intel_updated_at * 1000).toISOString()) : 'chưa có'}.</p>
           <DataTable rows={d.items} rowKey={(i) => i.workload + i.container + i.vuln_id + i.pkg}
             columns={[
               { key: 'id', header: 'Lỗ hổng', primary: true, cell: (i) => <span className="break-words"><b className="font-mono text-sm">{i.vuln_id}</b> · {i.pkg}</span> },
               { key: 'st', header: 'SLA', badge: true, cell: (i) => (!i.fixable ? <Badge tone="neutral">Chưa có bản sửa</Badge>
                 : i.breach ? <Badge tone="danger">Quá hạn {Math.abs(i.due_in_days ?? 0)} ngày</Badge>
                 : <Badge tone={(i.due_in_days ?? 99) <= 3 ? 'warning' : 'success'}>Còn {i.due_in_days} ngày</Badge>) },
-              { key: 'sev', header: 'Mức', cell: (i) => <Badge tone={i.severity === 'CRITICAL' ? 'danger' : 'warning'}>{i.severity}</Badge> },
+              { key: 'prio', header: 'Ưu tiên', cell: (i) => (
+                <span className="flex flex-wrap items-center gap-1" title={i.reasons.join(' · ')}>
+                  <Badge tone={i.priority === 'P1' ? 'danger' : i.priority === 'P2' ? 'warning' : 'neutral'}>{i.priority}</Badge>
+                  {i.kev && <Badge tone="danger">KEV{i.kev_ransomware ? ' · ransomware' : ''}</Badge>}
+                  {i.needs_mitigation && <Badge tone="warning">Cần biện pháp tạm</Badge>}
+                </span>) },
+              { key: 'sev', header: 'Mức · EPSS', cell: (i) => <span className="flex items-center gap-1"><Badge tone={i.severity === 'CRITICAL' ? 'danger' : 'warning'}>{i.severity}</Badge>{i.epss != null && <span className="text-xs text-muted">EPSS {(i.epss * 100).toFixed(1)}%</span>}</span> },
               { key: 'svc', header: 'Service', cell: (i) => <span className="font-mono text-xs">{i.workload}</span> },
               { key: 'ver', header: 'Phiên bản → bản sửa', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.installed} → {i.fixed || '—'}</span> },
               { key: 'img', header: 'Image', hideOnMobile: true, cell: (i) => <span className="font-mono text-xs break-all">{i.image}</span> },

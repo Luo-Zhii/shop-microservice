@@ -192,6 +192,13 @@ oncall:
 drills:
   cadence_days: 90
 
+# SLA vá lỗ hổng workload đang chạy (vulns.py) + ưu tiên theo rủi ro thật (threatintel.py: CISA KEV, FIRST EPSS).
+# Tình báo chỉ RÚT NGẮN hạn; mất mạng → giữ dữ liệu cũ, quay về hạn theo mức độ.
+security:
+  sla_days: {CRITICAL: 7, HIGH: 30}
+  threat_intel: true
+  policy: {kev_days: 3, epss_threshold: 0.1, epss_days: 7}
+
 # Quy sự cố ra tiền (agent/impact.py): giá trị đơn TB dự phòng khi chưa có order_gmv_vnd_total 7 ngày
 business:
   default_aov_vnd: 350000
